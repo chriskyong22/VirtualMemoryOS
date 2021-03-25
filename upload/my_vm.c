@@ -1,9 +1,9 @@
 #include "my_vm.h"
 #include <math.h>
 #include <unistd.h>
-void* physicalMemoryBase = NULL;
-void* physicalBitmap = NULL;
-void* virtualBitmap = NULL;
+char* physicalMemoryBase = NULL;
+char* physicalBitmap = NULL;
+char* virtualBitmap = NULL;
 #define ADDRESS_SPACE (sizeof(void*) * 8)
 /*
 Function responsible for allocating and setting your physical memory 
@@ -163,6 +163,17 @@ page_map(pde_t *pgdir, void *va, void *pa)
 void *get_next_avail(int num_pages) {
  
     //Use virtual address bitmap to find the next free page
+    for(int page = 1; page <= num_pages; page++) {
+    	// Each Char is 8 bits and thus holds 8 pages therefore to find the
+    	// correct char to look at, divide the current page by 8
+    	// To find the current bit to look at in the current char, modulo the 
+    	// currente page by 8 (page % 8).
+    	char* pageLocation = (virtualBitmap + (page / 8));
+    	if(((int)(*pageLocation >> (page % 8)) & 0x1) == 0) {
+    		// TO DO, need to calculate the address of the page (NOT SURE where to obtain the start of the page table)
+    	} 
+    }
+    return NULL;
 }
 
 //I Moved these 3 TLB METHODS To here, not sure why it was above part 1 stuff
