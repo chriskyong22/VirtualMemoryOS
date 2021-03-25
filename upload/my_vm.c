@@ -1,5 +1,6 @@
 #include "my_vm.h"
 #include <math.h>
+#include <unistd.h>
 void* physicalMemoryBase = NULL;
 void* physicalBitmap = NULL;
 void* virtualBitmap = NULL;
@@ -13,7 +14,7 @@ void set_physical_mem() {
     //your memory you are simulating
     physicalMemoryBase = malloc(MEMSIZE);
     
-    //HINT: Also calculate the number of physical and virtual pages and allocate
+	//HINT: Also calculate the number of physical and virtual pages and allocate
     //virtual and physical bitmaps and initialize them
 	
 	
@@ -74,6 +75,10 @@ pte_t *translate(pde_t *pgdir, void *va) {
 		unsigned long pageTableIndex = *((unsigned long*)va) & pageTableMask;
 		// Access the Index in the Page Table via: Page Table Base Address + (sizeof(page table entry) * page number to access)
 		nextAddress = *(nextAddress + pageTableIndex);
+		if (nextAddress == NULL) {
+			write(1, "INVALID ACCESS", sizeof("INVALID ACCESS"));
+			return NULL;
+		}
 		pageTableLevels--;
 		// Creating the new Page Table Mask:
 		// Step 1) Store an inverted version of the old Page Table Mask to be used to zero out the Top Bits 
@@ -84,9 +89,8 @@ pte_t *translate(pde_t *pgdir, void *va) {
 		pageTableMask &= inverseMask;
 		usedTopBits += pageTableBits;
 	}
-	
+	return nextAddress;
     //If translation not successfull
-    return NULL; 
 }
 
 
@@ -103,7 +107,54 @@ page_map(pde_t *pgdir, void *va, void *pa)
     /*HINT: Similar to translate(), find the page directory (1st level)
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
-
+	
+	unsigned int offsetBits = (int)log2(PGSIZE);
+	unsigned long offset = *((unsigned long*)va) & (PGSIZE);
+	
+	// Note, addressSpaceBits will be inaccurate for real 64-bit based paging 
+	// since 64-bit paging only uses 48 bits
+	unsigned int addressSpaceBits = ADDRESS_SPACE;
+	addressSpaceBits >>= offsetBits;
+	
+	// Page Table Entries = Page Table Size / Entry Size 
+	// Page Table Bits = log2(Page Table Entries)
+	unsigned int pageTableBits = (int)log2((PGSIZE / sizeof(void*)));
+	unsigned int pageTableLevels = 1;
+	while(addressSpaceBits > pageTableBits) {
+		pageTableLevels++;
+		addressSpaceBits -= pageTableBits;
+	}
+	// At this point, addressSpaceBits is equal to the # of bits for last page 
+	// table (Used for edgecase where, # of bits for last page table != # of bits
+	// for each page table since it could not be split evenly
+	unsigned long* nextAddress = pgdir;
+	unsigned int usedTopBits = 0;
+	// To create Page Table Mask:
+	// Step 1) Prune off all bits that are not the desired page table bits 
+	// Step 2) Shift the number of bits pruned off to get the value with only 
+	//		   the page table bits set.
+	unsigned long pageTableMask = (ADDRESS_SPACE >> (ADDRESS_SPACE - addressSpaceBits)) << (ADDRESS_SPACE - addressSpaceBits);
+	usedTopBits = addressSpaceBits;
+	while (pageTableLevels != 0) {
+		// Mask with the Virtual Address (Assuming VA is unsigned long*) 
+		unsigned long pageTableIndex = *((unsigned long*)va) & pageTableMask;
+		// Access the Index in the Page Table via: Page Table Base Address + (sizeof(page table entry) * page number to access)
+		nextAddress = *(nextAddress + pageTableIndex);
+		if (nextAddress == NULL) {
+			nextAddress = pa;
+			return 1;
+		}
+		pageTableLevels--;
+		// Creating the new Page Table Mask:
+		// Step 1) Store an inverted version of the old Page Table Mask to be used to zero out the Top Bits 
+		// Step 2) Create a Mask that includes the old Page Table Bits and the newly desired Page Table Bits (zeroing out the non-page table bits)
+		// Step 3) AND the new Mask with the inverted mask to zero out the top bits that were already used
+		unsigned long inverseMask = ~pageTableMask;
+		pageTableMask = (ADDRESS_SPACE >> (ADDRESS_SPACE - (usedTopBits + pageTableBits))) << (ADDRESS_SPACE - (usedTopBits + pageTableBits));
+		pageTableMask &= inverseMask;
+		usedTopBits += pageTableBits;
+	}
+	
     return -1;
 }
 
