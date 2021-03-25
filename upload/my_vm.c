@@ -163,7 +163,7 @@ page_map(pde_t *pgdir, void *va, void *pa)
 void *get_next_avail(int num_pages) {
  
     //Use virtual address bitmap to find the next free page
-    for(int page = 1; page <= num_pages; page++) {
+    for(int page = 0; page <= num_pages; page++) {
     	// Each Char is 8 bits and thus holds 8 pages therefore to find the
     	// correct char to look at, divide the current page by 8
     	// To find the current bit to look at in the current char, modulo the 
