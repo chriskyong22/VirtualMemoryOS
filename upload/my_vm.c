@@ -5,6 +5,8 @@ char* physicalMemoryBase = NULL;
 char* physicalBitmap = NULL;
 char* virtualBitmap = NULL;
 #define ADDRESS_SPACE (sizeof(void*) * 8)
+#define OFFSET_BITS ((int)log2(PGSIZE))
+unsigned long offsetMask = (1 << OFFSET_BITS) - 1;
 /*
 Function responsible for allocating and setting your physical memory 
 */
@@ -22,11 +24,11 @@ void set_physical_mem() {
 	// therefore we can store 8 pages per character and thus the number of mappings required is 
 	// # of Pages (Bytes) / Page Size (Bytes) = Number of Pages Required in Bytes 
 	// # of Pages in Bytes / 8 = Number of Pages Required in Bits
-	// Do I have to add + 1 incase we get a fractional amount? 
+	// Do I have to add + 1 incase we get a fractional amount? SOLVED, using ceiling
 	// E.g. 101.5 would be 102 bits required to store the pages so should I add 1 always as a safety check?
 	
-	physicalBitmap = malloc(sizeof(char) * ((MEMSIZE) / (PGSIZE * 8)));
-	virtualBitmap = malloc(sizeof(char) * ((MAX_MEMSIZE)/(PGSIZE * 8)));
+	physicalBitmap = malloc(sizeof(char) * ((int) (ceil((MEMSIZE) / (PGSIZE * 8.0)))));
+	virtualBitmap = malloc(sizeof(char) * ((int) (ceil((MAX_MEMSIZE)/(PGSIZE * 8.0)))));
 
 }
 
@@ -43,13 +45,12 @@ pte_t *translate(pde_t *pgdir, void *va) {
     * translation exists, then you can return physical address from the TLB.
     */
     
-	unsigned int offsetBits = (int)log2(PGSIZE);
-	unsigned long offset = *((unsigned long*)va) & (PGSIZE);
+	unsigned long offset = *((unsigned long*)va) & (offsetMask);
 	
 	// Note, addressSpaceBits will be inaccurate for real 64-bit based paging 
 	// since 64-bit paging only uses 48 bits
 	unsigned int addressSpaceBits = ADDRESS_SPACE;
-	addressSpaceBits >>= offsetBits;
+	addressSpaceBits >>= OFFSET_BITS;
 	
 	// Page Table Entries = Page Table Size / Entry Size 
 	// Page Table Bits = log2(Page Table Entries)
@@ -100,21 +101,18 @@ as an argument, and sets a page table entry. This function will walk the page
 directory to see if there is an existing mapping for a virtual address. If the
 virtual address is not present, then a new entry will be added
 */
-int
-page_map(pde_t *pgdir, void *va, void *pa)
-{
+int page_map(pde_t *pgdir, void *va, void *pa) {
 
     /*HINT: Similar to translate(), find the page directory (1st level)
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
 	
-	unsigned int offsetBits = (int)log2(PGSIZE);
-	unsigned long offset = *((unsigned long*)va) & (PGSIZE);
+	unsigned long offset = *((unsigned long*)va) & (offsetMask);
 	
 	// Note, addressSpaceBits will be inaccurate for real 64-bit based paging 
 	// since 64-bit paging only uses 48 bits
 	unsigned int addressSpaceBits = ADDRESS_SPACE;
-	addressSpaceBits >>= offsetBits;
+	addressSpaceBits >>= OFFSET_BITS;
 	
 	// Page Table Entries = Page Table Size / Entry Size 
 	// Page Table Bits = log2(Page Table Entries)
@@ -223,14 +221,14 @@ void *a_malloc(unsigned int num_bytes) {
     /* 
      * HINT: If the physical memory is not yet initialized, then allocate and initialize.
      */
-
+	
    /* 
     * HINT: If the page directory is not initialized, then initialize the
     * page directory. Next, using get_next_avail(), check if there are free pages. If
     * free pages are available, set the bitmaps and map a new page. Note, you will 
     * have to mark which physical pages are used. 
     */
-
+	
     return NULL;
 }
 
