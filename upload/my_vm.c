@@ -1,17 +1,22 @@
 #include "my_vm.h"
 #include <math.h>
 #include <unistd.h>
+#include <pthread.h>
 char* physicalMemoryBase = NULL;
 char* physicalBitmap = NULL;
 char* virtualBitmap = NULL;
+#define VIRTUAL_BITMAP_SIZE ((int) (ceil((MAX_MEMSIZE)/(PGSIZE * 8.0))))
+#define PHYSICAL_BITMAP_SIZE ((int) (ceil((MEMSIZE) / (PGSIZE * 8.0))))
 #define ADDRESS_SPACE (sizeof(void*) * 8)
 #define OFFSET_BITS ((int)log2(PGSIZE))
 unsigned long offsetMask = (1 << OFFSET_BITS) - 1;
+pthread_mutex_t physicalMemLock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mallocLock = PTHREAD_MUTEX_INITIALIZER;
 /*
 Function responsible for allocating and setting your physical memory 
 */
 void set_physical_mem() {
-
+	
     //Allocate physical memory using mmap or malloc; this is the total size of
     //your memory you are simulating
     physicalMemoryBase = malloc(MEMSIZE);
@@ -27,8 +32,8 @@ void set_physical_mem() {
 	// Do I have to add + 1 incase we get a fractional amount? SOLVED, using ceiling
 	// E.g. 101.5 would be 102 bits required to store the pages so should I add 1 always as a safety check?
 	
-	physicalBitmap = malloc(sizeof(char) * ((int) (ceil((MEMSIZE) / (PGSIZE * 8.0)))));
-	virtualBitmap = malloc(sizeof(char) * ((int) (ceil((MAX_MEMSIZE)/(PGSIZE * 8.0)))));
+	physicalBitmap = malloc(sizeof(char) * PHYSICAL_BITMAP_SIZE);
+	virtualBitmap = malloc(sizeof(char) * VIRTUAL_BITMAP_SIZE);
 
 }
 
@@ -56,7 +61,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
 	// Page Table Bits = log2(Page Table Entries)
 	unsigned int pageTableBits = (int)log2((PGSIZE / sizeof(void*)));
 	unsigned int pageTableLevels = 1;
-	while(addressSpaceBits > pageTableBits) {
+	while (addressSpaceBits > pageTableBits) {
 		pageTableLevels++;
 		addressSpaceBits -= pageTableBits;
 	}
@@ -92,6 +97,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
 	}
 	return nextAddress;
     //If translation not successfull
+    // return NULL
 }
 
 
@@ -161,17 +167,75 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 void *get_next_avail(int num_pages) {
  
     //Use virtual address bitmap to find the next free page
-    for(int page = 0; page <= num_pages; page++) {
-    	// Each Char is 8 bits and thus holds 8 pages therefore to find the
-    	// correct char to look at, divide the current page by 8
-    	// To find the current bit to look at in the current char, modulo the 
-    	// currente page by 8 (page % 8).
-    	char* pageLocation = (virtualBitmap + (page / 8));
-    	if(((int)(*pageLocation >> (page % 8)) & 0x1) == 0) {
-    		// TO DO, need to calculate the address of the page (NOT SURE where to obtain the start of the page table)
-    	} 
+    
+    //Changing to find the next free page(s) instead of singular page
+    
+    // In our Bitmap, each char is 8 pages therefore to check if there is a page
+	// free in a char, we mask it with 0b11111111 or 255. 
+	const int CHAR_IN_BITS = sizeof(char) * 8;
+	int startOfContinousPages = -1;
+	int foundContinousPages = 0;
+	const int PAGE_MASK = (1 << CHAR_IN_BITS) - 1; 
+    for (int pages = 0; pages <= VIRTUAL_BITMAP_SIZE; pages++) {
+    	char* pagesLocation = virtualBitmap + pages;
+    	if ((int)(*pagesLocation & PAGE_MASK) != PAGE_MASK) {
+    		for(int bitIndex = 0; bitIndex < CHAR_IN_BITS; bitIndex++) {
+    			int bitMask = 1 << bitIndex;
+    			if ((int)((*pagesLocation) & bitMask) == 0) {
+    				if (startOfContinousPages == -1) {
+    					startOfContinousPages = (pages * 8) + bitIndex;
+    				}
+    				foundContinousPages++;
+    				if (foundContinousPages == num_pages) {
+    					// TO DO
+    					// NEED TO RETURN THE VA OF THE startOfContinousPages
+    					return NULL;
+    				}
+    			} else {
+    				startOfContinousPages = -1;
+    				foundContinousPages = 0;
+    			}
+    		}
+    	}
     }
+    
+    // Could not allocate find a continous section in the page table that could
+    // hold num_pages continous pages.
     return NULL;
+}
+
+void* get_next_physicalavail() {
+	// In our Bitmap, each char is 8 pages therefore to check if there is a page
+	// free in a char, we mask it with 0b11111111 or 255. 
+	const int PAGE_MASK = (1 << (sizeof(char) * 8)) - 1; 
+	
+	for(int pages = 0; pages <= PHYSICAL_BITMAP_SIZE; pages++) {
+		// For each char, mask it to see if there is a free page within the char
+		// if there is a free page within a char, the char will not equal 255. 
+		char* pagesLocation = (physicalBitmap + pages);
+		if (((*pagesLocation) & PAGE_MASK) != PAGE_MASK) {
+			// Go through each bit of the char and see which bit is 0 which 
+			// indicates the page is free.
+			for(int bitIndex = 0; bitIndex < sizeof(char) * 8; bitIndex++) {
+			/*
+				bitMask values ~ 0b1 = 1, 0b10 = 2, 0b100 = 4, 0b1000 = 8
+				0b10000 = 16, 0b100000 = 32, 0b1000000 = 64, 0b10000000 = 128
+			*/
+				int bitMask = 1 << bitIndex;
+				if( (int)((*pagesLocation) & bitMask) == 0) {
+					// Found the bit that was free in the char
+					// The Corresponding Address of the Page Number in the 
+					// physical address space is: (pages * 8) + bitIndex
+					// Since each pages hold 8 pages and within 8 pages, the 
+					// bitIndex indicates a page within a char.
+					int pageNumber = bitIndex;
+					pageNumber += pages * 8;
+					return (physicalMemoryBase + (pageNumber * PGSIZE));
+				}
+			}
+		}
+	}
+	return NULL;
 }
 
 //I Moved these 3 TLB METHODS To here, not sure why it was above part 1 stuff
@@ -221,6 +285,14 @@ void *a_malloc(unsigned int num_bytes) {
     /* 
      * HINT: If the physical memory is not yet initialized, then allocate and initialize.
      */
+	if (physicalMemoryBase == NULL) {
+		pthread_mutex_lock(&physicalMemLock);
+		if (physicalMemoryBase == NULL) {
+			set_physical_mem();
+		}
+		pthread_mutex_unlock(&physicalMemLock);
+	}
+	pthread_mutex_lock(&mallocLock);
 	
    /* 
     * HINT: If the page directory is not initialized, then initialize the
@@ -228,7 +300,7 @@ void *a_malloc(unsigned int num_bytes) {
     * free pages are available, set the bitmaps and map a new page. Note, you will 
     * have to mark which physical pages are used. 
     */
-	
+	pthread_mutex_unlock(&mallocLock);
     return NULL;
 }
 
