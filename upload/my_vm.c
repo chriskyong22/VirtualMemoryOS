@@ -2,16 +2,25 @@
 #include <math.h>
 #include <unistd.h>
 #include <pthread.h>
-char* physicalMemoryBase = NULL;
-char* physicalBitmap = NULL;
-char* virtualBitmap = NULL;
+
 #define VIRTUAL_BITMAP_SIZE ((int) (ceil((MAX_MEMSIZE)/(PGSIZE * 8.0))))
 #define PHYSICAL_BITMAP_SIZE ((int) (ceil((MEMSIZE) / (PGSIZE * 8.0))))
 #define ADDRESS_SPACE (sizeof(void*) * 8)
 #define OFFSET_BITS ((int)log2(PGSIZE))
-unsigned long offsetMask = (1 << OFFSET_BITS) - 1;
+#define OFFSET_MASK ((1ULL << OFFSET_BITS) - 1)
+#define ENTRY_SIZE (sizeof(void*))
+#define VIRTUAL_PAGE_NUMBER_MASK (MAX_VIRTUAL_PAGE_INDEX << OFFSET_BITS)
+#define VIRTUAL_PAGE_NUMBER_BITS (ADDRESS_SPACE - OFFSET_BITS)
+#define MAX_VIRTUAL_PAGE_INDEX ((1ULL << VIRTUAL_PAGE_NUMBER_BITS) - 1)
+#define MAX_VIRTUAL_ADDRESS ((1ULL << ADDRESS_SPACE) - 1)
+
 pthread_mutex_t physicalMemLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mallocLock = PTHREAD_MUTEX_INITIALIZER;
+
+char* physicalMemoryBase = NULL;
+char* physicalBitmap = NULL;
+char* virtualBitmap = NULL;
+unsigned long long* pageDirectoryBase = NULL;
 /*
 Function responsible for allocating and setting your physical memory 
 */
@@ -19,7 +28,7 @@ void set_physical_mem() {
 	
     //Allocate physical memory using mmap or malloc; this is the total size of
     //your memory you are simulating
-    physicalMemoryBase = malloc(MEMSIZE);
+    physicalMemoryBase = calloc(MEMSIZE, sizeof(char));
     
 	//HINT: Also calculate the number of physical and virtual pages and allocate
     //virtual and physical bitmaps and initialize them
@@ -32,8 +41,8 @@ void set_physical_mem() {
 	// Do I have to add + 1 incase we get a fractional amount? SOLVED, using ceiling
 	// E.g. 101.5 would be 102 bits required to store the pages so should I add 1 always as a safety check?
 	
-	physicalBitmap = malloc(sizeof(char) * PHYSICAL_BITMAP_SIZE);
-	virtualBitmap = malloc(sizeof(char) * VIRTUAL_BITMAP_SIZE);
+	physicalBitmap = calloc(PHYSICAL_BITMAP_SIZE, sizeof(char));
+	virtualBitmap = calloc(VIRTUAL_BITMAP_SIZE, sizeof(char));
 
 }
 
@@ -50,7 +59,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
     * translation exists, then you can return physical address from the TLB.
     */
     
-	unsigned long offset = *((unsigned long*)va) & (offsetMask);
+	unsigned long offset = *((unsigned long*)va) & (OFFSET_MASK);
 	
 	// Note, addressSpaceBits will be inaccurate for real 64-bit based paging 
 	// since 64-bit paging only uses 48 bits
@@ -79,8 +88,9 @@ pte_t *translate(pde_t *pgdir, void *va) {
 	while (pageTableLevels != 0) {
 		// Mask with the Virtual Address (Assuming VA is unsigned long*) 
 		unsigned long pageTableIndex = *((unsigned long*)va) & pageTableMask;
+		pageTableIndex >>= (ADDRESS_SPACE - usedTopBits);
 		// Access the Index in the Page Table via: Page Table Base Address + (sizeof(page table entry) * page number to access)
-		nextAddress = *(nextAddress + pageTableIndex);
+		nextAddress = (unsigned long*) *(nextAddress + pageTableIndex);
 		if (nextAddress == NULL) {
 			write(1, "INVALID ACCESS", sizeof("INVALID ACCESS"));
 			return NULL;
@@ -113,11 +123,11 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
 	
-	unsigned long offset = *((unsigned long*)va) & (offsetMask);
+	unsigned long long offset = *((unsigned long*)va) & (OFFSET_MASK);
 	
 	// Note, addressSpaceBits will be inaccurate for real 64-bit based paging 
 	// since 64-bit paging only uses 48 bits
-	unsigned int addressSpaceBits = ADDRESS_SPACE;
+	unsigned long addressSpaceBits = ADDRESS_SPACE;
 	addressSpaceBits >>= OFFSET_BITS;
 	
 	// Page Table Entries = Page Table Size / Entry Size 
@@ -142,8 +152,9 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 	while (pageTableLevels != 0) {
 		// Mask with the Virtual Address (Assuming VA is unsigned long*) 
 		unsigned long pageTableIndex = *((unsigned long*)va) & pageTableMask;
+		pageTableIndex >>= (ADDRESS_SPACE - usedTopBits);
 		// Access the Index in the Page Table via: Page Table Base Address + (sizeof(page table entry) * page number to access)
-		nextAddress = *(nextAddress + pageTableIndex);
+		nextAddress = (unsigned long*) *(nextAddress + pageTableIndex);
 		if (nextAddress == NULL) {
 			nextAddress = pa;
 			return 1;
@@ -173,10 +184,10 @@ void *get_next_avail(int num_pages) {
     // In our Bitmap, each char is 8 pages therefore to check if there is a page
 	// free in a char, we mask it with 0b11111111 or 255. 
 	const int CHAR_IN_BITS = sizeof(char) * 8;
-	int startOfContinousPages = -1;
-	int foundContinousPages = 0;
+	long long startOfContinousPages = -1;
+	unsigned long foundContinousPages = 0;
 	const int PAGE_MASK = (1 << CHAR_IN_BITS) - 1; 
-    for (int pages = 0; pages <= VIRTUAL_BITMAP_SIZE; pages++) {
+    for (unsigned long pages = 0; pages <= VIRTUAL_BITMAP_SIZE; pages++) {
     	char* pagesLocation = virtualBitmap + pages;
     	if ((int)(*pagesLocation & PAGE_MASK) != PAGE_MASK) {
     		for(int bitIndex = 0; bitIndex < CHAR_IN_BITS; bitIndex++) {
@@ -209,7 +220,7 @@ void* get_next_physicalavail() {
 	// free in a char, we mask it with 0b11111111 or 255. 
 	const int PAGE_MASK = (1 << (sizeof(char) * 8)) - 1; 
 	
-	for(int pages = 0; pages <= PHYSICAL_BITMAP_SIZE; pages++) {
+	for(unsigned long pages = 0; pages <= PHYSICAL_BITMAP_SIZE; pages++) {
 		// For each char, mask it to see if there is a free page within the char
 		// if there is a free page within a char, the char will not equal 255. 
 		char* pagesLocation = (physicalBitmap + pages);
@@ -228,7 +239,7 @@ void* get_next_physicalavail() {
 					// physical address space is: (pages * 8) + bitIndex
 					// Since each pages hold 8 pages and within 8 pages, the 
 					// bitIndex indicates a page within a char.
-					int pageNumber = bitIndex;
+					unsigned long pageNumber = bitIndex;
 					pageNumber += pages * 8;
 					return (physicalMemoryBase + (pageNumber * PGSIZE));
 				}
@@ -237,6 +248,7 @@ void* get_next_physicalavail() {
 	}
 	return NULL;
 }
+
 
 //I Moved these 3 TLB METHODS To here, not sure why it was above part 1 stuff
 
@@ -247,7 +259,7 @@ void* get_next_physicalavail() {
 int add_TLB(void *va, void *pa) {
 
     /*Part 2 HINT: Add a virtual to physical page translation to the TLB */
-
+	
     return -1;
 }
 
@@ -273,7 +285,6 @@ void print_TLB_missrate() {
 
     /*Part 2 Code here to calculate and print the TLB miss rate*/
 
-
     fprintf(stderr, "TLB miss rate %lf \n", miss_rate);
 }
 
@@ -294,6 +305,19 @@ void *a_malloc(unsigned int num_bytes) {
 	}
 	pthread_mutex_lock(&mallocLock);
 	
+	if (pageDirectoryBase == NULL) { 
+		pageDirectoryBase = get_next_physicalavail();
+		if (pageDirectoryBase == NULL) { 
+			fprintf(stderr, "Could not allocate page directory!\n");
+			exit(-1);
+		}
+	}
+	
+	int numberOfPagesToAllocate = (int) ceil((double)num_bytes / PGSIZE);
+	void* startingVirtualPageAddress = get_next_avail(numberOfPagesToAllocate);
+	for (int pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++) {
+		
+	}
    /* 
     * HINT: If the page directory is not initialized, then initialize the
     * page directory. Next, using get_next_avail(), check if there are free pages. If
@@ -307,15 +331,14 @@ void *a_malloc(unsigned int num_bytes) {
 /* Responsible for releasing one or more memory pages using virtual address (va)
 */
 void a_free(void *va, int size) {
-
+	pthread_mutex_lock(&mallocLock);
     /* Part 1: Free the page table entries starting from this virtual address
      * (va). Also mark the pages free in the bitmap. Perform free only if the 
      * memory from "va" to va+size is valid.
      *
      * Part 2: Also, remove the translation from the TLB
      */
-     
-    
+     pthread_mutex_unlock(&mallocLock);
 }
 
 
@@ -329,10 +352,10 @@ void put_value(void *va, void *val, int size) {
      * than one page. Therefore, you may have to find multiple pages using translate()
      * function.
      */
+	pthread_mutex_lock(&mallocLock);
 
 
-
-
+	pthread_mutex_unlock(&mallocLock);
 }
 
 
@@ -342,10 +365,10 @@ void get_value(void *va, void *val, int size) {
     /* HINT: put the values pointed to by "va" inside the physical memory at given
     * "val" address. Assume you can access "val" directly by derefencing them.
     */
+	pthread_mutex_lock(&mallocLock);
+		
 
-
-
-
+	pthread_mutex_unlock(&mallocLock);
 }
 
 
@@ -370,6 +393,45 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
 /*
 Helper Functions
 */
+void toggleBitPhysicalBitmap (void* physicalPageAddress) {
+	// MAX PAGE NUMBER is 2^(20) for 32 bit and 2^(52) for 64 bit
+	unsigned long pageNumber = ((char*)physicalPageAddress - (char*)physicalMemoryBase) / PGSIZE;
+	char* pagesLocation = physicalBitmap + (pageNumber / 8);
+	int bitMask = 1 << (pageNumber % 8);
+	(*pagesLocation) ^= (bitMask);
+}
+
+void toggleBitVirtualBitmapPPN(unsigned long long pageNumber) {
+	char* pagesLocation = virtualBitmap + (pageNumber / 8);
+	int bitMask = 1 << (pageNumber % 8);
+	(*pagesLocation) ^= (bitMask);
+}
+
+unsigned long long getVirtualPageNumber(void* virtualPageAddress) {
+	unsigned long long pageNumber = ((*((unsigned long long*)virtualPageAddress)) & VIRTUAL_PAGE_NUMBER_MASK) >> OFFSET_BITS;
+	return pageNumber;
+}
+
+void toggleBitVirtualBitmapVA(void* virtualPageAddress) {
+	getVirtualPageNumber(virtualPageAddress);
+}
+
+int checkValidVirtualAddress(void* virtualPageAddress) {
+	if(*((unsigned long long*) virtualPageAddress) > MAX_VIRTUAL_ADDRESS) {
+		return -1;
+	}
+	return 1;
+}
+
+int checkValidVirtualPageNumber(unsigned long long virtualPageNumber) {
+	if (virtualPageNumber > MAX_VIRTUAL_PAGE_INDEX) {
+		return -1;
+	}
+	return 1;
+}
+
+
+
 
 
 
