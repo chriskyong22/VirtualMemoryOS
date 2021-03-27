@@ -14,13 +14,24 @@
 #define MAX_VIRTUAL_PAGE_INDEX ((1ULL << VIRTUAL_PAGE_NUMBER_BITS) - 1)
 #define MAX_VIRTUAL_ADDRESS ((1ULL << ADDRESS_SPACE) - 1)
 
+int checkValidVirtualPageNumber(unsigned long virtualPageNumber);
+int checkValidVirtualAddress(void* virtualPageAddress);
+void toggleBitVirtualBitmapVA(void* virtualPageAddress);
+void toggleBitVirtualBitmapPN(unsigned long pageNumber);
+void toggleBitPhysicalBitmapPN (unsigned long pageNumber);
+void toggleBitPhysicalBitmapPA (void* physicalPageAddress);
+void* getVirtualPageAddress(unsigned long pageNumber);
+unsigned long getVirtualPageNumber(void* virtualPageAddress);
+void* getPhysicalPageAddress(unsigned long pageNumber);
+unsigned long getPhysicalPageNumber(void* physicalPageAddress);
+
 pthread_mutex_t physicalMemLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mallocLock = PTHREAD_MUTEX_INITIALIZER;
 
 char* physicalMemoryBase = NULL;
 char* physicalBitmap = NULL;
 char* virtualBitmap = NULL;
-unsigned long long* pageDirectoryBase = NULL;
+unsigned long* pageDirectoryBase = NULL;
 /*
 Function responsible for allocating and setting your physical memory 
 */
@@ -123,7 +134,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
 	
-	unsigned long long offset = *((unsigned long*)va) & (OFFSET_MASK);
+	unsigned long offset = *((unsigned long*)va) & (OFFSET_MASK);
 	
 	// Note, addressSpaceBits will be inaccurate for real 64-bit based paging 
 	// since 64-bit paging only uses 48 bits
@@ -241,7 +252,7 @@ void* get_next_physicalavail() {
 					// bitIndex indicates a page within a char.
 					unsigned long pageNumber = bitIndex;
 					pageNumber += pages * 8;
-					return (physicalMemoryBase + (pageNumber * PGSIZE));
+					return (void*) (physicalMemoryBase + (pageNumber * PGSIZE));
 				}
 			}
 		}
@@ -312,20 +323,45 @@ void *a_malloc(unsigned int num_bytes) {
 			exit(-1);
 		}
 	}
-	
-	int numberOfPagesToAllocate = (int) ceil((double)num_bytes / PGSIZE);
-	void* startingVirtualPageAddress = get_next_avail(numberOfPagesToAllocate);
-	for (int pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++) {
-		
-	}
-   /* 
+	/* 
     * HINT: If the page directory is not initialized, then initialize the
     * page directory. Next, using get_next_avail(), check if there are free pages. If
     * free pages are available, set the bitmaps and map a new page. Note, you will 
     * have to mark which physical pages are used. 
     */
+	int numberOfPagesToAllocate = (int) ceil((double)num_bytes / PGSIZE);
+	void* startingVirtualPageAddress = get_next_avail(numberOfPagesToAllocate);
+	if (startingVirtualPageAddress == NULL) {
+		pthread_mutex_unlock(&mallocLock);
+		return NULL;
+	}
+	
+	unsigned long virtualPageNumber = getVirtualPageNumber(startingVirtualPageAddress);
+	
+	void** physicalAddresses = malloc(sizeof(void*) * numberOfPagesToAllocate);
+	if (physicalAddresses == NULL) {
+		pthread_mutex_unlock(&mallocLock);
+		return NULL;
+	} 
+	
+	for (int pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++) {
+		void* physicalAddress = get_next_physicalavail();
+		if (physicalAddress == NULL) { 
+			pthread_mutex_unlock(&mallocLock);
+			free(physicalAddresses);
+			return NULL;
+		} else {
+			physicalAddresses[pageIndex] = physicalAddress;
+		}
+	}
+	
+	for (int pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
+		toggleBitPhysicalBitmapPA(physicalAddresses[pageIndex]);
+		toggleBitVirtualBitmapPN(virtualPageNumber);
+	}
+	free(physicalAddresses);
 	pthread_mutex_unlock(&mallocLock);
-    return NULL;
+    return startingVirtualPageAddress;
 }
 
 /* Responsible for releasing one or more memory pages using virtual address (va)
@@ -393,23 +429,43 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
 /*
 Helper Functions
 */
-void toggleBitPhysicalBitmap (void* physicalPageAddress) {
+
+unsigned long getPhysicalPageNumber(void* physicalPageAddress) {
+	unsigned long pageNumber = (int) ((char*) physicalPageAddress - (char*)physicalMemoryBase) / PGSIZE;
+	return pageNumber;
+}
+
+void* getPhysicalPageAddress(unsigned long pageNumber) {
+	return (void*) (physicalMemoryBase + (pageNumber * PGSIZE));
+}
+
+unsigned long getVirtualPageNumber(void* virtualPageAddress) {
+	unsigned long pageNumber = (*((unsigned long*)virtualPageAddress)) >> OFFSET_BITS;
+	return pageNumber;
+}
+
+void* getVirtualPageAddress(unsigned long pageNumber) {
+	return (void*)(pageNumber << OFFSET_BITS);
+}
+
+void toggleBitPhysicalBitmapPA (void* physicalPageAddress) {
 	// MAX PAGE NUMBER is 2^(20) for 32 bit and 2^(52) for 64 bit
-	unsigned long pageNumber = ((char*)physicalPageAddress - (char*)physicalMemoryBase) / PGSIZE;
+	unsigned long pageNumber = (int) ((char*)physicalPageAddress - (char*)physicalMemoryBase) / PGSIZE;
 	char* pagesLocation = physicalBitmap + (pageNumber / 8);
 	int bitMask = 1 << (pageNumber % 8);
 	(*pagesLocation) ^= (bitMask);
 }
 
-void toggleBitVirtualBitmapPPN(unsigned long long pageNumber) {
-	char* pagesLocation = virtualBitmap + (pageNumber / 8);
+void toggleBitPhysicalBitmapPN (unsigned long pageNumber) {
+	char* pagesLocation = physicalBitmap + (pageNumber / 8);
 	int bitMask = 1 << (pageNumber % 8);
 	(*pagesLocation) ^= (bitMask);
 }
 
-unsigned long long getVirtualPageNumber(void* virtualPageAddress) {
-	unsigned long long pageNumber = ((*((unsigned long long*)virtualPageAddress)) & VIRTUAL_PAGE_NUMBER_MASK) >> OFFSET_BITS;
-	return pageNumber;
+void toggleBitVirtualBitmapPN(unsigned long pageNumber) {
+	char* pagesLocation = virtualBitmap + (pageNumber / 8);
+	int bitMask = 1 << (pageNumber % 8);
+	(*pagesLocation) ^= (bitMask);
 }
 
 void toggleBitVirtualBitmapVA(void* virtualPageAddress) {
@@ -417,13 +473,13 @@ void toggleBitVirtualBitmapVA(void* virtualPageAddress) {
 }
 
 int checkValidVirtualAddress(void* virtualPageAddress) {
-	if(*((unsigned long long*) virtualPageAddress) > MAX_VIRTUAL_ADDRESS) {
+	if(*((unsigned long*) virtualPageAddress) > MAX_VIRTUAL_ADDRESS) {
 		return -1;
 	}
 	return 1;
 }
 
-int checkValidVirtualPageNumber(unsigned long long virtualPageNumber) {
+int checkValidVirtualPageNumber(unsigned long virtualPageNumber) {
 	if (virtualPageNumber > MAX_VIRTUAL_PAGE_INDEX) {
 		return -1;
 	}
