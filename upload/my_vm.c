@@ -56,6 +56,9 @@ void set_physical_mem() {
 	// Do I have to add + 1 incase we get a fractional amount? SOLVED, using ceiling
 	// E.g. 101.5 would be 102 bits required to store the pages so should I add 1 always as a safety check?
 	
+	//TODO: If there is a fractional part and had to be rounded to allocate the
+	// last pages, then we must set the pages in the last char that should not exist
+	// to 1 to indicate it's already in use and it cannot be used for allocation
 	physicalBitmap = calloc(PHYSICAL_BITMAP_SIZE, sizeof(char));
 	virtualBitmap = calloc(VIRTUAL_BITMAP_SIZE, sizeof(char));
 
@@ -168,9 +171,16 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 		// Mask with the Virtual Address (Assuming VA is unsigned long*) 
 		unsigned long pageTableIndex = *((unsigned long*)va) & pageTableMask;
 		pageTableIndex >>= (ADDRESS_SPACE_BITS - usedTopBits);
-		// Access the Index in the Page Table via: Page Table Base Address + (sizeof(page table entry) * page number to access)
-		nextAddress = (unsigned long*) *(nextAddress + pageTableIndex);
-		if (nextAddress == NULL) {
+		// Access the Index in the Page Table via: 
+		// Page Table Base Address + (sizeof(page table entry) * pageTableIndex)
+		// Assuming since nextAddress is unsigned long, the sizeof unsigned long
+		// will be 4 bytes or 8 bytes depending on 32/64 bit, safer approach is
+		// ((char*)nextAddress + (ENTRY_SIZE * pageTableIndex))
+		nextAddress = (unsigned long*) *(nextAddress + pageTableIndex); 
+		// Currently assuming the VA was checked to be a free page already for
+		// the VA and we just overwrite the stored PA (if there is one already stored)
+		// in the last level page table entry.
+		if (nextAddress == NULL || pageTableLevels == 0) {
 			if (pageTableLevels == 0) {
 				nextAddress = pa;
 				return 1;
