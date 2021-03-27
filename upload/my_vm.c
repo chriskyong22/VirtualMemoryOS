@@ -427,8 +427,17 @@ void put_value(void *va, void *val, int size) {
      * function.
      */
 	pthread_mutex_lock(&mallocLock);
-
-
+	unsigned long numberOfPagesToAllocate = (int) ceil((double)size / PGSIZE);
+	unsigned long virtualPageNumber = getVirtualPageNumber(va);
+	unsigned long copied = 0;
+	unsigned long copy = size < PGSIZE ? size : PGSIZE;
+	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) { 
+     	void* physicalAddress = translate(pageDirectoryBase, (void*) getVirtualPageAddress(virtualPageNumber));
+     	memcpy(physicalAddress, (char*)val + copied, sizeof(char) * copy);
+     	size -= PGSIZE;
+     	copy = size < PGSIZE ? size : PGSIZE;
+     	copied += PGSIZE;
+    }
 	pthread_mutex_unlock(&mallocLock);
 }
 
