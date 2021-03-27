@@ -195,7 +195,8 @@ void *get_next_avail(int num_pages) {
     // In our Bitmap, each char is 8 pages therefore to check if there is a page
 	// free in a char, we mask it with 0b11111111 or 255. 
 	const int CHAR_IN_BITS = sizeof(char) * 8;
-	long long startOfContinousPages = -1;
+	int foundStartContinous = 0;
+	unsigned long startOfContinousPages = -1;
 	unsigned long foundContinousPages = 0;
 	const int PAGE_MASK = (1 << CHAR_IN_BITS) - 1; 
     for (unsigned long pages = 0; pages <= VIRTUAL_BITMAP_SIZE; pages++) {
@@ -204,17 +205,16 @@ void *get_next_avail(int num_pages) {
     		for(int bitIndex = 0; bitIndex < CHAR_IN_BITS; bitIndex++) {
     			int bitMask = 1 << bitIndex;
     			if ((int)((*pagesLocation) & bitMask) == 0) {
-    				if (startOfContinousPages == -1) {
+    				if (foundStartContinous == 0) {
+    					foundStartContinous = 1;
     					startOfContinousPages = (pages * 8) + bitIndex;
     				}
     				foundContinousPages++;
     				if (foundContinousPages == num_pages) {
-    					// TO DO
-    					// NEED TO RETURN THE VA OF THE startOfContinousPages
-    					return NULL;
+    					return getVirtualPageAddress(startOfContinousPages);
     				}
     			} else {
-    				startOfContinousPages = -1;
+    				foundStartContinous = 0;
     				foundContinousPages = 0;
     			}
     		}
