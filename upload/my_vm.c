@@ -358,6 +358,7 @@ void *a_malloc(unsigned int num_bytes) {
 	for (int pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
 		toggleBitPhysicalBitmapPA(physicalAddresses[pageIndex]);
 		toggleBitVirtualBitmapPN(virtualPageNumber);
+		page_map(pageDirectoryBase, getVirtualPageAddress(virtualPageNumber), physicalAddresses[pageIndex]);
 	}
 	free(physicalAddresses);
 	pthread_mutex_unlock(&mallocLock);
