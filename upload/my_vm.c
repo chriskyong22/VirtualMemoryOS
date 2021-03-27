@@ -449,8 +449,17 @@ void get_value(void *va, void *val, int size) {
     * "val" address. Assume you can access "val" directly by derefencing them.
     */
 	pthread_mutex_lock(&mallocLock);
-		
-
+	unsigned long numberOfPagesToAllocate = (int) ceil((double)size / PGSIZE);
+	unsigned long virtualPageNumber = getVirtualPageNumber(va);
+	unsigned long copied = 0;
+	unsigned long copy = size < PGSIZE ? size : PGSIZE;
+	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) { 
+     	void* physicalAddress = translate(pageDirectoryBase, (void*) getVirtualPageAddress(virtualPageNumber));
+     	memcpy((char*)val + copied, physicalAddress, sizeof(char) * copy);
+     	size -= PGSIZE;
+     	copy = size < PGSIZE ? size : PGSIZE;
+     	copied += PGSIZE;
+    }
 	pthread_mutex_unlock(&mallocLock);
 }
 
