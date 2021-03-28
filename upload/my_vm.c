@@ -4,6 +4,16 @@
 #include <pthread.h>
 #include <string.h>
 
+typedef struct allocationNode {
+	void* physicalAddress;
+	void** virtualPageEntry;
+	struct allocationNode* next;
+} allocationNode;
+
+typedef struct allocationLinkedList {
+	allocationNode* head;
+} allocationLinkedList;
+
 #define VIRTUAL_BITMAP_SIZE ((int) (ceil((MAX_MEMSIZE)/(PGSIZE * 8.0))))
 #define PHYSICAL_BITMAP_SIZE ((int) (ceil((MEMSIZE) / (PGSIZE * 8.0))))
 #define ADDRESS_SPACE_BITS (sizeof(void*) * 8)
@@ -28,6 +38,10 @@ unsigned long getPhysicalPageNumber(void* physicalPageAddress);
 void zeroOutPhysicalPage(void* physicalPageAddress);
 void *get_next_avail(int num_pages);
 void* get_next_physicalavail();
+void insert(allocationLinkedList* list, void** pageEntry, void* physicalAddress);
+void freeAllocationLinkedList(allocationLinkedList* list);
+void toggleAllocationLinkedList(allocationLinkedList* list);
+int checkIfFirstVirtualPageIsFree();
 
 pthread_mutex_t physicalMemLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mallocLock = PTHREAD_MUTEX_INITIALIZER;
@@ -77,7 +91,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
     * translation exists, then you can return physical address from the TLB.
     */
     
-	unsigned long offset = *((unsigned long*)va) & (OFFSET_MASK);
+	unsigned long offset = ((unsigned long)va) & (OFFSET_MASK);
 	
 	// Note, virtualPageBits will be inaccurate for real 64-bit based paging 
 	// since 64-bit paging only uses 48 bits
@@ -104,7 +118,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
 	usedTopBits = virtualPageBits;
 	while (pageTableLevels != 0) {
 		// Mask with the Virtual Address (Assuming VA is unsigned long*) 
-		unsigned long pageTableIndex = *((unsigned long*)va) & pageTableMask;
+		unsigned long pageTableIndex = ((unsigned long)va) & pageTableMask;
 		pageTableIndex >>= (ADDRESS_SPACE_BITS - usedTopBits);
 		// Access the Index in the Page Table via: Page Table Base Address + (sizeof(page table entry) * page number to access)
 		nextAddress = (unsigned long*) *(nextAddress + pageTableIndex);
@@ -139,8 +153,8 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
     /*HINT: Similar to translate(), find the page directory (1st level)
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
-	
-	unsigned long offset = *((unsigned long*)va) & (OFFSET_MASK);
+	printf("Mapping %ld VA to %ld PA\n", (unsigned long)va, (unsigned long)pa);
+	unsigned long offset = ((unsigned long)va) & (OFFSET_MASK);
 	
 	// Note, virtualPageBits will be inaccurate for real 64-bit based paging 
 	// since 64-bit paging only uses 48 bits
@@ -164,11 +178,12 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 	// Step 2) Shift the number of bits pruned off to get the value with only 
 	//		   the page directory bits set.
 	unsigned long pageTableMask = (MAX_VIRTUAL_ADDRESS >> (ADDRESS_SPACE_BITS - virtualPageBits)) << (ADDRESS_SPACE_BITS - virtualPageBits);
-	usedTopBits += virtualPageBits;
+	usedTopBits += virtualPageBits; 
+	allocationLinkedList* allocation = NULL;
 	while (pageTableLevels != 0) {
 		pageTableLevels--;
 		// Mask with the Virtual Address (Assuming VA is unsigned long*) 
-		unsigned long pageTableIndex = *((unsigned long*)va) & pageTableMask;
+		unsigned long pageTableIndex = ((unsigned long)va) & pageTableMask;
 		pageTableIndex >>= (ADDRESS_SPACE_BITS - usedTopBits);
 		// Access the Index in the Page Table via: 
 		// Page Table Base Address + (sizeof(page table entry) * pageTableIndex)
@@ -182,15 +197,35 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 		if (nextAddress == NULL || pageTableLevels == 0) {
 			if (pageTableLevels == 0) {
 				nextAddress = pa;
+				free(allocation);
 				return 1;
 			} else {
-				void* physicalPage = get_next_physicalavail();
-				if (physicalPage == NULL) {
+				void* physicalPageAddress = get_next_physicalavail();
+				if (physicalPageAddress == NULL) {
+					// Need to fix page tables that were allocated for this translation 
+					// but ran out of physical pages to store the new page tables needed for the translation
+					// Therefore we need to unallocate and free all the previous page tables we stored 
+					// for this translation and reset the entry in the physical bitmap
+					
+					// NOTE, I don't think you need to set the virtual bit map since 
+					// those pages are still free in the virtual space because our 
+					// virtual pages are not meant for storing page tables but user
+					// data and thus we do not need to update the virtual bitmap
+					// In addition, this is why I only NULL out the entry in the 
+					// page tables, if we could not store the page tables required for
+					// the translation. (I am using lazy malloc therefore we only zero out the pages when it
+					// is allocated, aka there was old data, we just leave it till user wants to malloc)
+					toggleAllocationLinkedList(allocation);
+					free(allocation);
 					return -1;
 				}
-				nextAddress = physicalPage;
-				zeroOutPhysicalPage(physicalPage);
-				toggleBitPhysicalBitmapPA(physicalPage);
+				nextAddress = physicalPageAddress;
+				zeroOutPhysicalPage(physicalPageAddress);
+				toggleBitPhysicalBitmapPA(physicalPageAddress);
+				if (allocation == NULL) {
+					allocation = malloc(sizeof(allocationLinkedList));
+				}
+				insert(allocation, (void**) &nextAddress, physicalPageAddress);
 			}
 		}
 		
@@ -203,7 +238,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 		pageTableMask &= inverseMask;
 		usedTopBits += pageTableBits;
 	}
-	
+	free(allocation);
     return -1;
 }
 
@@ -231,9 +266,11 @@ void *get_next_avail(int num_pages) {
     				if (foundStartContinous == 0) {
     					foundStartContinous = 1;
     					startOfContinousPages = (pages * 8) + bitIndex;
+    					printf("Found start of continous page %ld\n", startOfContinousPages);
     				}
     				foundContinousPages++;
     				if (foundContinousPages == num_pages) {
+    					printf("Returning\n");
     					return getVirtualPageAddress(startOfContinousPages);
     				}
     			} else {
@@ -337,6 +374,7 @@ void *a_malloc(unsigned int num_bytes) {
 		}
 		pthread_mutex_unlock(&physicalMemLock);
 	}
+	
 	pthread_mutex_lock(&mallocLock);
 	
 	if (pageDirectoryBase == NULL) { 
@@ -345,7 +383,10 @@ void *a_malloc(unsigned int num_bytes) {
 			fprintf(stderr, "Could not allocate page directory!\n");
 			exit(-1);
 		}
+		toggleBitPhysicalBitmapPA(pageDirectoryBase);
+		printf("Succesfully Allocated Page directory\n");
 	}
+	
 	/* 
     * HINT: If the page directory is not initialized, then initialize the
     * page directory. Next, using get_next_avail(), check if there are free pages. If
@@ -353,14 +394,16 @@ void *a_malloc(unsigned int num_bytes) {
     * have to mark which physical pages are used. 
     */
 	unsigned long numberOfPagesToAllocate = (int) ceil((double)num_bytes / PGSIZE);
+	printf("Have to allocate %ld\n", numberOfPagesToAllocate);
 	void* startingVirtualPageAddress = get_next_avail(numberOfPagesToAllocate);
-	if (startingVirtualPageAddress == NULL) {
+	if (startingVirtualPageAddress == NULL && checkIfFirstVirtualPageIsFree()) {
+		printf("Failed to find place to store the pages\n");
 		pthread_mutex_unlock(&mallocLock);
 		return NULL;
 	}
 	
 	unsigned long virtualPageNumber = getVirtualPageNumber(startingVirtualPageAddress);
-	
+	printf("Starting Virtual Page Number %ld\n", virtualPageNumber);
 	void** physicalAddresses = malloc(sizeof(void*) * numberOfPagesToAllocate);
 	if (physicalAddresses == NULL) {
 		pthread_mutex_unlock(&mallocLock);
@@ -495,11 +538,12 @@ void* getPhysicalPageAddress(unsigned long pageNumber) {
 }
 
 unsigned long getVirtualPageNumber(void* virtualPageAddress) {
-	unsigned long pageNumber = (*((unsigned long*)virtualPageAddress)) >> OFFSET_BITS;
+	unsigned long pageNumber = ((unsigned long)virtualPageAddress) >> OFFSET_BITS;
 	return pageNumber;
 }
 
 void* getVirtualPageAddress(unsigned long pageNumber) {
+	printf("Converting %ld pageNumber to virtual address %ld\n", pageNumber, (pageNumber << OFFSET_BITS));
 	return (void*)(pageNumber << OFFSET_BITS);
 }
 
@@ -528,7 +572,7 @@ void toggleBitVirtualBitmapVA(void* virtualPageAddress) {
 }
 
 int checkValidVirtualAddress(void* virtualPageAddress) {
-	if(*((unsigned long*) virtualPageAddress) > MAX_VIRTUAL_ADDRESS) {
+	if(((unsigned long) virtualPageAddress) > MAX_VIRTUAL_ADDRESS) {
 		return -1;
 	}
 	return 1;
@@ -545,6 +589,40 @@ void zeroOutPhysicalPage(void* physicalPageAddress) {
 	memset(physicalPageAddress, '\0', sizeof(char) * PGSIZE);
 }
 
+void toggleAllocationLinkedList(allocationLinkedList* list) {
+	allocationNode* current = list->head;
+	while (current != NULL) {
+		*(current->virtualPageEntry) = NULL;
+		toggleBitPhysicalBitmapPA(current->physicalAddress);
+		current = current->next;
+	}
+}
+
+void freeAllocationLinkedList(allocationLinkedList* list) {
+	if (list == NULL) {
+		return;
+	}
+	
+	allocationNode* current = list->head;
+	while (current != NULL) {
+		allocationNode* temp = current;
+		current = current->next;
+		free(temp);
+	}
+	free(list);
+}
+
+void insert(allocationLinkedList* list, void** pageEntry, void* physicalAddress) {
+	allocationNode* temp = malloc(sizeof(allocationNode*));
+	temp->virtualPageEntry = pageEntry;
+	temp->physicalAddress = physicalAddress;
+	temp->next = list->head == NULL ? NULL : list->head;
+	list->head = temp;
+} 
+
+int checkIfFirstVirtualPageIsFree() {
+	return *virtualBitmap & 1;
+}
 
 
 
