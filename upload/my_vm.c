@@ -6,7 +6,7 @@
 
 typedef struct allocationNode {
 	void* physicalAddress;
-	void** virtualPageEntry;
+	void* virtualPageEntry;
 	struct allocationNode* next;
 } allocationNode;
 
@@ -38,7 +38,7 @@ unsigned long getPhysicalPageNumber(void* physicalPageAddress);
 void zeroOutPhysicalPage(void* physicalPageAddress);
 void *get_next_avail(int num_pages);
 void* get_next_physicalavail();
-void insert(allocationLinkedList* list, void** pageEntry, void* physicalAddress);
+void insert(allocationLinkedList* list, void* pageEntry, void* physicalAddress);
 void freeAllocationLinkedList(allocationLinkedList* list);
 void toggleAllocationLinkedList(allocationLinkedList* list);
 int checkIfFirstVirtualPageIsFree();
@@ -629,7 +629,7 @@ void zeroOutPhysicalPage(void* physicalPageAddress) {
 void toggleAllocationLinkedList(allocationLinkedList* list) {
 	allocationNode* current = list->head;
 	while (current != NULL) {
-		*(current->virtualPageEntry) = NULL;
+		*((unsigned long*)current->virtualPageEntry) = (unsigned long) NULL;
 		toggleBitPhysicalBitmapPA(current->physicalAddress);
 		current = current->next;
 	}
@@ -649,7 +649,7 @@ void freeAllocationLinkedList(allocationLinkedList* list) {
 	free(list);
 }
 
-void insert(allocationLinkedList* list, void** pageEntry, void* physicalAddress) {
+void insert(allocationLinkedList* list, void* pageEntry, void* physicalAddress) {
 	allocationNode* temp = malloc(sizeof(allocationNode*));
 	temp->virtualPageEntry = pageEntry;
 	temp->physicalAddress = physicalAddress;
