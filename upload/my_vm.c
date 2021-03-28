@@ -253,7 +253,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 					// page tables, if we could not store the page tables required for
 					// the translation. (I am using lazy malloc therefore we only zero out the pages when it
 					// is allocated, aka there was old data, we just leave it till user wants to malloc)
-					//printf("[D]: Ran out of physical pages\n");
+					printf("[D]: Ran out of physical pages\n");
 					toggleAllocationLinkedList(allocation);
 					freeAllocationLinkedList(allocation);
 					return -1;
@@ -268,6 +268,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 				toggleBitPhysicalBitmapPA(physicalPageAddress);
 				if (allocation == NULL) {
 					allocation = malloc(sizeof(allocationLinkedList));
+					allocation->head = NULL;
 				}
 				insert(allocation, (void**) holdNextAddress, physicalPageAddress);
 			}
@@ -740,7 +741,7 @@ void freeAllocationLinkedList(allocationLinkedList* list) {
 	if (list == NULL) {
 		return;
 	}
-	
+	printf("Freeing\n");
 	allocationNode* current = list->head;
 	while (current != NULL) {
 		allocationNode* temp = current;
@@ -748,6 +749,7 @@ void freeAllocationLinkedList(allocationLinkedList* list) {
 		free(temp);
 	}
 	free(list);
+	printf("Done Freeing\n");
 }
 
 void insert(allocationLinkedList* list, void* pageEntry, void* physicalAddress) {
