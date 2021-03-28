@@ -14,8 +14,8 @@ typedef struct allocationLinkedList {
 	allocationNode* head;
 } allocationLinkedList;
 
-#define VIRTUAL_BITMAP_SIZE ((int) (ceil((MAX_MEMSIZE)/(PGSIZE * 8.0))))
-#define PHYSICAL_BITMAP_SIZE ((int) (ceil((MEMSIZE) / (PGSIZE * 8.0))))
+#define VIRTUAL_BITMAP_SIZE ((int) (ceil((MAX_MEMSIZE)/ ((PGSIZE) * 8.0))))
+#define PHYSICAL_BITMAP_SIZE ((int) (ceil((MEMSIZE) / ((PGSIZE) * 8.0))))
 #define ADDRESS_SPACE_BITS (sizeof(void*) * 8)
 #define OFFSET_BITS ((int)log2(PGSIZE))
 #define OFFSET_MASK ((1ULL << OFFSET_BITS) - 1)
@@ -58,7 +58,9 @@ void set_physical_mem() {
     //Allocate physical memory using mmap or malloc; this is the total size of
     //your memory you are simulating
     physicalMemoryBase = calloc(MEMSIZE, sizeof(char));
-    
+    if (physicalMemoryBase == NULL) {
+    	exit(-1);
+    }
 	//HINT: Also calculate the number of physical and virtual pages and allocate
     //virtual and physical bitmaps and initialize them
 	
@@ -74,8 +76,32 @@ void set_physical_mem() {
 	// last pages, then we must set the pages in the last char that should not exist
 	// to 1 to indicate it's already in use and it cannot be used for allocation
 	physicalBitmap = calloc(PHYSICAL_BITMAP_SIZE, sizeof(char));
+	if (physicalBitmap == NULL) {
+		
+		exit(-1);
+	}
+	int bitMask = (1 << 8) - 1;
+	// Means the number of pages in the physical space is not a multiple of 8 and thus
+	// we will have extra bits in the last char that should not be used.
+	if (((MEMSIZE) / (PGSIZE)) % 8 != 0) {
+		int validBits = 8 - ((MEMSIZE/PGSIZE) % 8);
+		int validBitsMask = (1 << validBits) - 1;
+		char setMask = bitMask ^ validBitsMask;
+		*(physicalBitmap + PHYSICAL_BITMAP_SIZE) = setMask;
+	} 
 	virtualBitmap = calloc(VIRTUAL_BITMAP_SIZE, sizeof(char));
-
+	if (virtualBitmap == NULL) {
+		
+		exit(-1);
+	}
+	
+	if (((MAX_MEMSIZE) / (PGSIZE)) % 8 != 0) {
+		int validBits = 8 - (((MAX_MEMSIZE) / (PGSIZE)) % 8);
+		int validBitsMask = (1 << validBits) - 1;
+		char setMask = bitMask ^ validBitsMask;
+		*(virtualBitmap + VIRTUAL_BITMAP_SIZE) = setMask;
+	}
+	
 }
 
 /*
@@ -153,7 +179,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
     /*HINT: Similar to translate(), find the page directory (1st level)
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
-	printf("Mapping %ld VA to %ld PA\n", (unsigned long)va, (unsigned long)pa);
+	printf("Mapping %lu VA to %lu PA\n", ((unsigned long)va), ((unsigned long)pa));
 	unsigned long offset = ((unsigned long)va) & (OFFSET_MASK);
 	
 	// Note, virtualPageBits will be inaccurate for real 64-bit based paging 
@@ -180,6 +206,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 	unsigned long pageTableMask = (MAX_VIRTUAL_ADDRESS >> (ADDRESS_SPACE_BITS - virtualPageBits)) << (ADDRESS_SPACE_BITS - virtualPageBits);
 	usedTopBits += virtualPageBits; 
 	allocationLinkedList* allocation = NULL;
+	printf("Number of Page Tables %d\n", pageTableLevels);
 	while (pageTableLevels != 0) {
 		pageTableLevels--;
 		// Mask with the Virtual Address (Assuming VA is unsigned long*) 
@@ -190,16 +217,21 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 		// Assuming since nextAddress is unsigned long, the sizeof unsigned long
 		// will be 4 bytes or 8 bytes depending on 32/64 bit, safer approach is
 		// ((char*)nextAddress + (ENTRY_SIZE * pageTableIndex))
+		printf("The index in the current page table is %lu\n", pageTableIndex);
+		void* holdNextAddress = (nextAddress + pageTableIndex);
 		nextAddress = (unsigned long*) *(nextAddress + pageTableIndex); 
+		printf("The address stored in the entry is %lu\n", (unsigned long) nextAddress);
 		// Currently assuming the VA was checked to be a free page already for
 		// the VA and we just overwrite the stored PA (if there is one already stored)
 		// in the last level page table entry.
 		if (nextAddress == NULL || pageTableLevels == 0) {
 			if (pageTableLevels == 0) {
-				nextAddress = pa;
+				printf("Setting the address of the physical in the page table entry %lu\n", (unsigned long)pa);
+				*((unsigned long*)holdNextAddress) = (unsigned long)pa;
 				free(allocation);
 				return 1;
 			} else {
+				printf("Allocating a new %d-level page table\n", pageTableLevels + 1);
 				void* physicalPageAddress = get_next_physicalavail();
 				if (physicalPageAddress == NULL) {
 					// Need to fix page tables that were allocated for this translation 
@@ -215,17 +247,20 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 					// page tables, if we could not store the page tables required for
 					// the translation. (I am using lazy malloc therefore we only zero out the pages when it
 					// is allocated, aka there was old data, we just leave it till user wants to malloc)
+					printf("[D]: Ran out of physical pages\n");
 					toggleAllocationLinkedList(allocation);
 					free(allocation);
 					return -1;
 				}
+				*((unsigned long*)holdNextAddress) = ((unsigned long) physicalPageAddress);
 				nextAddress = physicalPageAddress;
+				printf("Storing the address %lu in the entry\n", (unsigned long) physicalPageAddress);
 				zeroOutPhysicalPage(physicalPageAddress);
 				toggleBitPhysicalBitmapPA(physicalPageAddress);
 				if (allocation == NULL) {
 					allocation = malloc(sizeof(allocationLinkedList));
 				}
-				insert(allocation, (void**) &nextAddress, physicalPageAddress);
+				insert(allocation, (void**) holdNextAddress, physicalPageAddress);
 			}
 		}
 		
@@ -243,6 +278,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 }
 
 /*Function that gets the next available page
+ Shouldn't this be unsigned long to account for unsigned long?
 */
 void *get_next_avail(int num_pages) {
  
@@ -252,6 +288,8 @@ void *get_next_avail(int num_pages) {
     
     // In our Bitmap, each char is 8 pages therefore to check if there is a page
 	// free in a char, we mask it with 0b11111111 or 255. 
+	
+	printf("Looking for %d pages\n", num_pages);
 	const int CHAR_IN_BITS = sizeof(char) * 8;
 	int foundStartContinous = 0;
 	unsigned long startOfContinousPages = -1;
@@ -266,11 +304,10 @@ void *get_next_avail(int num_pages) {
     				if (foundStartContinous == 0) {
     					foundStartContinous = 1;
     					startOfContinousPages = (pages * 8) + bitIndex;
-    					printf("Found start of continous page %ld\n", startOfContinousPages);
+    					printf("Starting Continous Page Number %lu\n", startOfContinousPages);
     				}
     				foundContinousPages++;
     				if (foundContinousPages == num_pages) {
-    					printf("Returning\n");
     					return getVirtualPageAddress(startOfContinousPages);
     				}
     			} else {
@@ -394,7 +431,7 @@ void *a_malloc(unsigned int num_bytes) {
     * have to mark which physical pages are used. 
     */
 	unsigned long numberOfPagesToAllocate = (int) ceil((double)num_bytes / PGSIZE);
-	printf("Have to allocate %ld\n", numberOfPagesToAllocate);
+	printf("%u bytes require %lu pages\n", num_bytes, numberOfPagesToAllocate);
 	void* startingVirtualPageAddress = get_next_avail(numberOfPagesToAllocate);
 	if (startingVirtualPageAddress == NULL && checkIfFirstVirtualPageIsFree()) {
 		printf("Failed to find place to store the pages\n");
@@ -623,6 +660,7 @@ void insert(allocationLinkedList* list, void** pageEntry, void* physicalAddress)
 int checkIfFirstVirtualPageIsFree() {
 	return *virtualBitmap & 1;
 }
+
 
 
 
