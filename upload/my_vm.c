@@ -206,7 +206,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 	unsigned long pageTableMask = (MAX_VIRTUAL_ADDRESS >> (ADDRESS_SPACE_BITS - virtualPageBits)) << (ADDRESS_SPACE_BITS - virtualPageBits);
 	usedTopBits += virtualPageBits; 
 	allocationLinkedList* allocation = NULL;
-	printf("Number of Page Tables %d\n", pageTableLevels);
+	//printf("Number of Page Tables %d\n", pageTableLevels);
 	while (pageTableLevels != 0) {
 		pageTableLevels--;
 		// Mask with the Virtual Address (Assuming VA is unsigned long*) 
@@ -220,7 +220,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 		printf("The index in the current page table is %lu\n", pageTableIndex);
 		void* holdNextAddress = (nextAddress + pageTableIndex);
 		nextAddress = (unsigned long*) *(nextAddress + pageTableIndex); 
-		printf("The address stored in the entry is %lu\n", (unsigned long) nextAddress);
+		//printf("The address stored in the entry is %lu\n", (unsigned long) nextAddress);
 		// Currently assuming the VA was checked to be a free page already for
 		// the VA and we just overwrite the stored PA (if there is one already stored)
 		// in the last level page table entry.
@@ -247,7 +247,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 					// page tables, if we could not store the page tables required for
 					// the translation. (I am using lazy malloc therefore we only zero out the pages when it
 					// is allocated, aka there was old data, we just leave it till user wants to malloc)
-					printf("[D]: Ran out of physical pages\n");
+					//printf("[D]: Ran out of physical pages\n");
 					toggleAllocationLinkedList(allocation);
 					free(allocation);
 					return -1;
@@ -289,7 +289,7 @@ void *get_next_avail(int num_pages) {
     // In our Bitmap, each char is 8 pages therefore to check if there is a page
 	// free in a char, we mask it with 0b11111111 or 255. 
 	
-	printf("Looking for %d pages\n", num_pages);
+	//printf("Looking for %d pages\n", num_pages);
 	const int CHAR_IN_BITS = sizeof(char) * 8;
 	int foundStartContinous = 0;
 	unsigned long startOfContinousPages = -1;
@@ -304,7 +304,7 @@ void *get_next_avail(int num_pages) {
     				if (foundStartContinous == 0) {
     					foundStartContinous = 1;
     					startOfContinousPages = (pages * 8) + bitIndex;
-    					printf("Starting Continous Page Number %lu\n", startOfContinousPages);
+    					//printf("Starting Continous Page Number %lu\n", startOfContinousPages);
     				}
     				foundContinousPages++;
     				if (foundContinousPages == num_pages) {
@@ -421,7 +421,7 @@ void *a_malloc(unsigned int num_bytes) {
 			exit(-1);
 		}
 		toggleBitPhysicalBitmapPA(pageDirectoryBase);
-		printf("Succesfully Allocated Page directory\n");
+		//printf("Succesfully Allocated Page directory\n");
 	}
 	
 	/* 
@@ -451,15 +451,18 @@ void *a_malloc(unsigned int num_bytes) {
 		void* physicalAddress = get_next_physicalavail();
 		if (physicalAddress == NULL) { 
 			pthread_mutex_unlock(&mallocLock);
+			for (int index = 0;index < pageIndex; index++) {
+				toggleBitPhysicalBitmapPA(physicalAddresses[pageIndex]);
+			}
 			free(physicalAddresses);
 			return NULL;
 		} else {
 			physicalAddresses[pageIndex] = physicalAddress;
+			toggleBitPhysicalBitmapPA(physicalAddresses[pageIndex]);
 		}
 	}
 	
 	for (unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
-		toggleBitPhysicalBitmapPA(physicalAddresses[pageIndex]);
 		toggleBitVirtualBitmapPN(virtualPageNumber);
 		if (page_map(pageDirectoryBase, getVirtualPageAddress(virtualPageNumber), physicalAddresses[pageIndex]) == -1) {
 			fprintf(stderr, "Failed to map the virtual to physical!\n");
@@ -557,8 +560,23 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
      * getting the values from two matrices, you will perform multiplication and 
      * store the result to the "answer array"
      */
-
-       
+    unsigned int address_a = 0, address_b = 0;
+    unsigned int address_c = 0;
+    int x = 0, y = 0;
+	for (int i = 0; i < size; i++) {
+    	for (int j = 0; j < size; j++) {
+    		int z = 0;
+    		for(int temp = 0; temp < size; temp++) {
+    			address_a = ((unsigned int)mat1) + ((i * size * sizeof(int))) + (temp * sizeof(int));
+		    	address_b = ((unsigned int)mat2) + ((temp * size * sizeof(int))) + (j * sizeof(int));
+		    	get_value((void *)address_a, &x, sizeof(int));
+		    	get_value((void *)address_b, &y, sizeof(int));
+		    	z += (x * y);
+    		}
+    		address_c = ((unsigned int)answer) + ((i * size * sizeof(int))) + (j * sizeof(int));
+        	put_value((void *)address_c, &z, sizeof(int));
+        }
+    }
 }
 
 /*
@@ -580,7 +598,7 @@ unsigned long getVirtualPageNumber(void* virtualPageAddress) {
 }
 
 void* getVirtualPageAddress(unsigned long pageNumber) {
-	printf("Converting %ld pageNumber to virtual address %ld\n", pageNumber, (pageNumber << OFFSET_BITS));
+	//printf("Converting %ld pageNumber to virtual address %ld\n", pageNumber, (pageNumber << OFFSET_BITS));
 	return (void*)(pageNumber << OFFSET_BITS);
 }
 
