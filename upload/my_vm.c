@@ -15,6 +15,12 @@ typedef struct allocationLinkedList {
 	allocationNode* head;
 } allocationLinkedList;
 
+typedef struct tlbNode {
+	void* physicalPageAddress;
+	unsigned long virtualPageNumber;
+	char metadata; // first bit will be valid bit and 2nd bit will be reference bit
+} tlbNode;
+
 #define VIRTUAL_BITMAP_SIZE ((int) (ceil((MAX_MEMSIZE)/ ((PGSIZE) * 8.0))))
 #define PHYSICAL_BITMAP_SIZE ((int) (ceil((MEMSIZE) / ((PGSIZE) * 8.0))))
 #define ADDRESS_SPACE_BITS (sizeof(void*) * 8)
@@ -25,7 +31,10 @@ typedef struct allocationLinkedList {
 #define VIRTUAL_PAGE_NUMBER_MASK (MAX_VIRTUAL_PAGE_INDEX << OFFSET_BITS)
 #define VIRTUAL_PAGE_NUMBER_BITS (ADDRESS_SPACE_BITS - OFFSET_BITS)
 #define MAX_VIRTUAL_PAGE_INDEX ((1ULL << VIRTUAL_PAGE_NUMBER_BITS) - 1)
-#define MAX_VIRTUAL_ADDRESS ULONG_MAX
+#define MAX_VIRTUAL_ADDRESS (ULONG_MAX)
+#define TLB_VALID_BIT_MASK (1ULL << 0)
+#define TLB_REFERENCE_BIT_MASK (1ULL << 1)
+
 
 int checkValidVirtualPageNumber(unsigned long virtualPageNumber);
 int checkValidVirtualAddress(void* virtualPageAddress);
@@ -56,6 +65,7 @@ char* physicalMemoryBase = NULL;
 char* physicalBitmap = NULL;
 char* virtualBitmap = NULL;
 unsigned long* pageDirectoryBase = NULL;
+tlbNode* tlbBaseAddress = NULL;
 /*
 Function responsible for allocating and setting your physical memory 
 */
@@ -377,7 +387,23 @@ void* get_next_physicalavail() {
 int add_TLB(void *va, void *pa) {
 
     /*Part 2 HINT: Add a virtual to physical page translation to the TLB */
-	
+	unsigned long virtualPageNumber = getVirtualPageNumber(va);
+	unsigned long originalTLBIndex = virtualPageNumber % TLB_ENTRIES;
+	unsigned long tlbIndex = originalTLBIndex;
+	do {
+		tlbNode currentTLBEntry = *(tlbBaseAddress + tlbIndex);
+		if ((currentTLBEntry.metadata & TLB_VALID_BIT_MASK) == 0) {
+			currentTLBEntry.metadata ^= TLB_VALID_BIT_MASK;
+			// If we need the reference bit, set reference bit to 1 here. 
+			// (Do not use xor because reference bit might be 1 from previous runs, 
+			// to solve: if we remove the entry we must set the reference bit to 0)
+			currentTLBEntry.virtualPageNumber = virtualPageNumber;
+			currentTLBEntry.physicalPageAddress = pa;
+			return 1;
+		}
+		tlbIndex += 1;
+		tlbIndex %= TLB_ENTRIES;
+	} while (tlbIndex != originalTLBIndex);
     return -1;
 }
 
@@ -387,12 +413,42 @@ int add_TLB(void *va, void *pa) {
  * Returns the physical page address.
  * Feel free to extend this function and change the return type.
  */
-pte_t * check_TLB(void *va) {
+void * check_TLB(void *va) {
 
     /* Part 2: TLB lookup code here */
-
+	unsigned long virtualPageNumber = getVirtualPageNumber(va);
+	unsigned long originalTLBIndex = virtualPageNumber % TLB_ENTRIES;
+	unsigned long tlbIndex = originalTLBIndex;
+	do {
+		tlbNode currentTLBEntry = *(tlbBaseAddress + tlbIndex);
+		if ((currentTLBEntry.metadata & TLB_VALID_BIT_MASK) == 1 && currentTLBEntry.virtualPageNumber == virtualPageNumber) {
+			return currentTLBEntry.physicalPageAddress;
+		}
+		tlbIndex += 1;
+		tlbIndex %= TLB_ENTRIES;
+	} while (tlbIndex != originalTLBIndex);
+    return NULL;
 }
 
+/*
+	Custom removal of TLB entry
+*/
+int remove_TLB(void *va) {
+
+	unsigned long virtualPageNumber = getVirtualPageNumber(va);
+	unsigned long originalTLBIndex = virtualPageNumber % TLB_ENTRIES;
+	unsigned long tlbIndex = originalTLBIndex;
+	do {
+		tlbNode currentTLBEntry = *(tlbBaseAddress + tlbIndex);
+		if ((currentTLBEntry.metadata & TLB_VALID_BIT_MASK) == 1 && currentTLBEntry.virtualPageNumber == virtualPageNumber) {
+			currentTLBEntry.metadata ^= TLB_VALID_BIT_MASK;
+			return 1;
+		}
+		tlbIndex += 1;
+		tlbIndex %= TLB_ENTRIES;
+	} while (tlbIndex != originalTLBIndex);
+    return -1;
+}
 
 /*
  * Part 2: Print TLB miss rate.
@@ -546,8 +602,12 @@ void a_free(void *va, int size) {
      // page table the entry is in and & it with the mask to see if there is any 
      // entries set, if it is 0 after BITWISE AND, then we know the page table 
      // can be dealloced and the physical page can be freed (repeat for each level of page table except page directory)  
-     for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) { 
-     	void* physicalAddress = translate(pageDirectoryBase, (void*) getVirtualPageAddress(virtualPageNumber));
+     for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
+     	void* virtualPageAddress = (void*) getVirtualPageAddress(virtualPageNumber);
+     	
+     	// Can we assume the virtual page address will already be in the TLB? So we don't need to use translate?
+     	void* physicalAddress = translate(pageDirectoryBase, virtualPageAddress);
+     	remove_TLB(virtualPageAddress);
      	toggleBitPhysicalBitmapPA(physicalAddress);
      	toggleBitVirtualBitmapPN(virtualPageNumber);
      	// TO DO: REMOVE FROM TLB TOO
@@ -762,6 +822,10 @@ void insert(allocationLinkedList* list, void* pageEntry, void* physicalAddress) 
 
 int checkIfFirstVirtualPageIsAllocated() {
 	return *virtualBitmap & 1;
+}
+
+void createTLB() {
+	tlbBaseAddress = calloc(TLB_ENTRIES, sizeof(tlbNode));
 }
 
 
