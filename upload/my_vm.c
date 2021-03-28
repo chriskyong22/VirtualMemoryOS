@@ -81,8 +81,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
 	
 	// Note, virtualPageBits will be inaccurate for real 64-bit based paging 
 	// since 64-bit paging only uses 48 bits
-	unsigned int virtualPageBits = ADDRESS_SPACE_BITS;
-	virtualPageBits -= OFFSET_BITS;
+	unsigned int virtualPageBits = VIRTUAL_PAGE_NUMBER_BITS;
 	
 	// Page Table Entries = Page Table Size / Entry Size 
 	// Page Table Bits = log2(Page Table Entries)
@@ -101,7 +100,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
 	// Step 1) Prune off all bits that are not the desired page table bits 
 	// Step 2) Shift the number of bits pruned off to get the value with only 
 	//		   the page table bits set.
-	unsigned long pageTableMask = (ADDRESS_SPACE_BITS >> (ADDRESS_SPACE_BITS - virtualPageBits)) << (ADDRESS_SPACE_BITS - virtualPageBits);
+	unsigned long pageTableMask = (MAX_VIRTUAL_ADDRESS >> (ADDRESS_SPACE_BITS - virtualPageBits)) << (ADDRESS_SPACE_BITS - virtualPageBits);
 	usedTopBits = virtualPageBits;
 	while (pageTableLevels != 0) {
 		// Mask with the Virtual Address (Assuming VA is unsigned long*) 
@@ -119,7 +118,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
 		// Step 2) Create a Mask that includes the old Page Table Bits and the newly desired Page Table Bits (zeroing out the non-page table bits)
 		// Step 3) AND the new Mask with the inverted mask to zero out the top bits that were already used
 		unsigned long inverseMask = ~pageTableMask;
-		pageTableMask = (ADDRESS_SPACE_BITS >> (ADDRESS_SPACE_BITS - (usedTopBits + pageTableBits))) << (ADDRESS_SPACE_BITS - (usedTopBits + pageTableBits));
+		pageTableMask = (MAX_VIRTUAL_ADDRESS >> (ADDRESS_SPACE_BITS - (usedTopBits + pageTableBits))) << (ADDRESS_SPACE_BITS - (usedTopBits + pageTableBits));
 		pageTableMask &= inverseMask;
 		usedTopBits += pageTableBits;
 	}
@@ -164,7 +163,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 	// Step 1) Prune off all bits that are not the desired page directory bits 
 	// Step 2) Shift the number of bits pruned off to get the value with only 
 	//		   the page directory bits set.
-	unsigned long pageTableMask = (ADDRESS_SPACE_BITS >> (ADDRESS_SPACE_BITS - virtualPageBits)) << (ADDRESS_SPACE_BITS - virtualPageBits);
+	unsigned long pageTableMask = (MAX_VIRTUAL_ADDRESS >> (ADDRESS_SPACE_BITS - virtualPageBits)) << (ADDRESS_SPACE_BITS - virtualPageBits);
 	usedTopBits += virtualPageBits;
 	while (pageTableLevels != 0) {
 		pageTableLevels--;
@@ -200,7 +199,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 		// Step 2) Create a Mask that includes the old Page Table Bits and the newly desired Page Table Bits (zeroing out the non-page table bits)
 		// Step 3) AND the new Mask with the inverted mask to zero out the top bits that were already used
 		unsigned long inverseMask = ~pageTableMask;
-		pageTableMask = (ADDRESS_SPACE_BITS >> (ADDRESS_SPACE_BITS - (usedTopBits + pageTableBits))) << (ADDRESS_SPACE_BITS - (usedTopBits + pageTableBits));
+		pageTableMask = (MAX_VIRTUAL_ADDRESS >> (ADDRESS_SPACE_BITS - (usedTopBits + pageTableBits))) << (ADDRESS_SPACE_BITS - (usedTopBits + pageTableBits));
 		pageTableMask &= inverseMask;
 		usedTopBits += pageTableBits;
 	}
