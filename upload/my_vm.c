@@ -57,6 +57,7 @@ int checkAllocatedPhysicalBitmapPA(void* physicalPageAddress);
 int checkAllocatedPhysicalBitmapPN(unsigned long pageNumber); 
 int checkAllocatedVirtualBitmapVA(void* virtualPageAddress);
 int checkAllocatedVirtualBitmapPN(unsigned long pageNumber);
+void createTLB();
 
 pthread_mutex_t physicalMemLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mallocLock = PTHREAD_MUTEX_INITIALIZER;
@@ -384,10 +385,17 @@ void* get_next_physicalavail() {
  * Part 2: Add a virtual to physical page translation to the TLB.
  * Feel free to extend the function arguments or return type.
  */
-int add_TLB(void *va, void *pa) {
+void add_TLB(void *va, void *pa) {
 
     /*Part 2 HINT: Add a virtual to physical page translation to the TLB */
 	unsigned long virtualPageNumber = getVirtualPageNumber(va);
+	unsigned long tlbIndex = virtualPageNumber % TLB_ENTRIES;
+	tlbNode currentTLBEntry = *(tlbBaseAddress + tlbIndex);
+	currentTLBEntry.virtualPageNumber = virtualPageNumber;
+	currentTLBEntry.physicalPageAddress = pa;
+	currentTLBEntry.metadata |= TLB_VALID_BIT_MASK;
+	
+	/**
 	unsigned long originalTLBIndex = virtualPageNumber % TLB_ENTRIES;
 	unsigned long tlbIndex = originalTLBIndex;
 	do {
@@ -405,6 +413,7 @@ int add_TLB(void *va, void *pa) {
 		tlbIndex %= TLB_ENTRIES;
 	} while (tlbIndex != originalTLBIndex);
     return -1;
+    */
 }
 
 
@@ -413,9 +422,17 @@ int add_TLB(void *va, void *pa) {
  * Returns the physical page address.
  * Feel free to extend this function and change the return type.
  */
-void * check_TLB(void *va) {
+void* check_TLB(void *va) {
 
     /* Part 2: TLB lookup code here */
+    unsigned long virtualPageNumber = getVirtualPageNumber(va);
+	unsigned long tlbIndex = virtualPageNumber % TLB_ENTRIES;
+	tlbNode currentTLBEntry = *(tlbBaseAddress + tlbIndex);
+	if ((currentTLBEntry.metadata & TLB_VALID_BIT_MASK) == 1 && currentTLBEntry.virtualPageNumber == virtualPageNumber) {
+		return currentTLBEntry.physicalPageAddress;
+	}
+	return NULL;
+    /**
 	unsigned long virtualPageNumber = getVirtualPageNumber(va);
 	unsigned long originalTLBIndex = virtualPageNumber % TLB_ENTRIES;
 	unsigned long tlbIndex = originalTLBIndex;
@@ -428,13 +445,20 @@ void * check_TLB(void *va) {
 		tlbIndex %= TLB_ENTRIES;
 	} while (tlbIndex != originalTLBIndex);
     return NULL;
+    */
 }
 
 /*
 	Custom removal of TLB entry
 */
-int remove_TLB(void *va) {
-
+void remove_TLB(void *va) {
+	unsigned long virtualPageNumber = getVirtualPageNumber(va);
+	unsigned long tlbIndex = virtualPageNumber % TLB_ENTRIES;
+	tlbNode currentTLBEntry = *(tlbBaseAddress + tlbIndex);
+	if ((currentTLBEntry.metadata & TLB_VALID_BIT_MASK) == 1 && currentTLBEntry.virtualPageNumber == virtualPageNumber) {
+		currentTLBEntry.metadata &= (((1ULL << 8) - 1) ^ TLB_VALID_BIT_MASK);
+	}
+	/**
 	unsigned long virtualPageNumber = getVirtualPageNumber(va);
 	unsigned long originalTLBIndex = virtualPageNumber % TLB_ENTRIES;
 	unsigned long tlbIndex = originalTLBIndex;
@@ -448,6 +472,7 @@ int remove_TLB(void *va) {
 		tlbIndex %= TLB_ENTRIES;
 	} while (tlbIndex != originalTLBIndex);
     return -1;
+    */
 }
 
 /*
@@ -475,6 +500,7 @@ void *a_malloc(unsigned int num_bytes) {
 		pthread_mutex_lock(&physicalMemLock);
 		if (physicalMemoryBase == NULL) {
 			set_physical_mem();
+			createTLB();
 		}
 		pthread_mutex_unlock(&physicalMemLock);
 	}
@@ -547,12 +573,15 @@ void *a_malloc(unsigned int num_bytes) {
 	// address space can hold continous amount of the pages. We must map each 
 	// virtual page to the physical page now and zero out the physical pages.
 	for (unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
+		void* virtualPageAddress = getVirtualPageAddress(virtualPageNumber);
 		toggleBitVirtualBitmapPN(virtualPageNumber);
-		if (page_map(pageDirectoryBase, getVirtualPageAddress(virtualPageNumber), physicalAddresses[pageIndex]) == -1) {
+		add_TLB(virtualPageAddress, physicalAddresses[pageIndex]);
+		if (page_map(pageDirectoryBase, virtualPageAddress, physicalAddresses[pageIndex]) == -1) {
 			// Failed to map, reverting all changes to virtual bitmap and physical bitmap. 
 			fprintf(stderr, "Failed to map the virtual to physical!\n");
 			virtualPageNumber = getVirtualPageNumber(startingVirtualPageAddress);
 			for (unsigned long index = 0; index <= pageIndex; index++, virtualPageNumber++) {
+				remove_TLB(getVirtualPageAddress(virtualPageNumber));
 				toggleBitVirtualBitmapPN(virtualPageNumber);
 			}
 			for (pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++) {
@@ -603,10 +632,13 @@ void a_free(void *va, int size) {
      // entries set, if it is 0 after BITWISE AND, then we know the page table 
      // can be dealloced and the physical page can be freed (repeat for each level of page table except page directory)  
      for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
-     	void* virtualPageAddress = (void*) getVirtualPageAddress(virtualPageNumber);
+     	void* virtualPageAddress = getVirtualPageAddress(virtualPageNumber);
      	
      	// Can we assume the virtual page address will already be in the TLB? So we don't need to use translate?
-     	void* physicalAddress = translate(pageDirectoryBase, virtualPageAddress);
+     	void* physicalAddress = check_TLB(virtualPageAddress);
+     	if (physicalAddress == NULL) {
+     		physicalAddress = translate(pageDirectoryBase, virtualPageAddress);
+     	}
      	remove_TLB(virtualPageAddress);
      	toggleBitPhysicalBitmapPA(physicalAddress);
      	toggleBitVirtualBitmapPN(virtualPageNumber);
@@ -633,8 +665,12 @@ void put_value(void *va, void *val, int size) {
 	unsigned long copied = 0;
 	unsigned long copy = size < (PGSIZE) ? size : (PGSIZE);
 	pthread_mutex_lock(&mallocLock);
-	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) { 
-     	void* physicalAddress = translate(pageDirectoryBase, (void*) getVirtualPageAddress(virtualPageNumber));
+	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
+		void* virtualPageAddress = getVirtualPageAddress(virtualPageNumber);
+		void* physicalAddress = check_TLB(virtualPageAddress);
+     	if (physicalAddress == NULL) {
+     		physicalAddress = translate(pageDirectoryBase, virtualPageAddress);
+     	}
      	memcpy(physicalAddress, (char*)val + copied, sizeof(char) * copy);
      	size -= PGSIZE;
      	copied += sizeof(char) * copy;
@@ -657,7 +693,11 @@ void get_value(void *va, void *val, int size) {
 	unsigned long copy = size < (PGSIZE) ? size : (PGSIZE);
 	pthread_mutex_lock(&mallocLock);
 	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) { 
-     	void* physicalAddress = translate(pageDirectoryBase, (void*) getVirtualPageAddress(virtualPageNumber));
+     	void* virtualPageAddress = getVirtualPageAddress(virtualPageNumber);
+		void* physicalAddress = check_TLB(virtualPageAddress);
+     	if (physicalAddress == NULL) {
+     		physicalAddress = translate(pageDirectoryBase, virtualPageAddress);
+     	}
      	memcpy((char*)val + copied, physicalAddress, sizeof(char) * copy);
      	size -= PGSIZE;
      	copied += sizeof(char) * copy;
