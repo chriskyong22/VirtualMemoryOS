@@ -59,7 +59,6 @@ int checkAllocatedVirtualBitmapVA(void* virtualPageAddress);
 int checkAllocatedVirtualBitmapPN(unsigned long pageNumber);
 void createTLB();
 
-pthread_mutex_t physicalMemLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mallocLock = PTHREAD_MUTEX_INITIALIZER;
 
 char* physicalMemoryBase = NULL;
@@ -496,22 +495,20 @@ void *a_malloc(unsigned int num_bytes) {
      * HINT: If the physical memory is not yet initialized, then allocate and initialize.
      */
      
-	if (physicalMemoryBase == NULL) {
-		pthread_mutex_lock(&physicalMemLock);
-		if (physicalMemoryBase == NULL) {
-			set_physical_mem();
-			createTLB();
-		}
-		pthread_mutex_unlock(&physicalMemLock);
-	}
-	
 	/* 
     * HINT: If the page directory is not initialized, then initialize the
     * page directory. Next, using get_next_avail(), check if there are free pages. If
     * free pages are available, set the bitmaps and map a new page. Note, you will 
     * have to mark which physical pages are used. 
     */
+    
 	pthread_mutex_lock(&mallocLock);
+	if (physicalMemoryBase == NULL) {
+		if (physicalMemoryBase == NULL) {
+			set_physical_mem();
+			createTLB();
+		}
+	}
 	
 	if (pageDirectoryBase == NULL) { 
 		pageDirectoryBase = get_next_physicalavail();
@@ -521,7 +518,6 @@ void *a_malloc(unsigned int num_bytes) {
 		}
 		toggleBitPhysicalBitmapPA(pageDirectoryBase);
 	}
-	
 	unsigned long numberOfPagesToAllocate = (int) ceil((double)num_bytes / PGSIZE);
 	printf("%u bytes require %lu pages\n", num_bytes, numberOfPagesToAllocate);
 	
@@ -529,7 +525,7 @@ void *a_malloc(unsigned int num_bytes) {
 	// continous pages. 
 	// Can we have continous pages that span across page tables? Current implementation: ASSUMES yes. 
 	void* startingVirtualPageAddress = get_next_avail(numberOfPagesToAllocate);
-
+	
 	// Note since virtual address can start with 0x0 or NULL, then we have an
 	// edgecase where returned address is the first page or 0x0 or NULL, and to
 	// see if this page is valid to be used, see if it is allocated already. 
@@ -634,7 +630,6 @@ void a_free(void *va, int size) {
      for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
      	void* virtualPageAddress = getVirtualPageAddress(virtualPageNumber);
      	
-     	// Can we assume the virtual page address will already be in the TLB? So we don't need to use translate?
      	void* physicalAddress = check_TLB(virtualPageAddress);
      	if (physicalAddress == NULL) {
      		physicalAddress = translate(pageDirectoryBase, virtualPageAddress);
