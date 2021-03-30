@@ -275,7 +275,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 					allocation = malloc(sizeof(allocationLinkedList));
 					allocation->head = NULL;
 				}
-				insert(allocation, (void**) holdNextAddress, physicalPageAddress);
+				insert(allocation, (void*) holdNextAddress, physicalPageAddress);
 			}
 		}
 		
@@ -645,8 +645,9 @@ void a_free(void *va, int size) {
      	void* physicalAddress = check_TLB(virtualPageAddress);
      	if (physicalAddress == NULL) {
      		physicalAddress = translate(pageDirectoryBase, virtualPageAddress);
+     	} else { 
+     		remove_TLB(virtualPageAddress);
      	}
-     	remove_TLB(virtualPageAddress);
      	toggleBitPhysicalBitmapPA(physicalAddress);
      	toggleBitVirtualBitmapPN(virtualPageNumber);
      }
@@ -685,6 +686,11 @@ void put_value(void *va, void *val, int size) {
 		void* physicalAddress = check_TLB(virtualPageAddress);
      	if (physicalAddress == NULL) {
      		physicalAddress = translate(pageDirectoryBase, virtualPageAddress);
+     		if (physicalAddress != NULL) { 
+     			add_TLB(virtualPageAddress, physicalAddress);
+     		} else { 
+     			write(2, "[E]: Translation failed but virtual bitmap said page was allocated\n", sizeof("[E]: Translation failed but virtual bitmap said page was allocated\n")); 
+     		}
      	}
      	memcpy(physicalAddress, ((char*)val) + copied, sizeof(char) * copy);
      	size -= PGSIZE;
@@ -721,6 +727,11 @@ void get_value(void *va, void *val, int size) {
 		void* physicalAddress = check_TLB(virtualPageAddress);
      	if (physicalAddress == NULL) {
      		physicalAddress = translate(pageDirectoryBase, virtualPageAddress);
+     		if (physicalAddress != NULL) { 
+     			add_TLB(virtualPageAddress, physicalAddress);
+     		} else { 
+     			write(2, "[E]: Translation failed but virtual bitmap said page was allocated\n", sizeof("[E]: Translation failed but virtual bitmap said page was allocated\n")); 
+     		}
      	}
      	memcpy(((char*)val) + copied, physicalAddress, sizeof(char) * copy);
      	size -= PGSIZE;
