@@ -399,11 +399,11 @@ void add_TLB(void *va, void *pa) {
     /*Part 2 HINT: Add a virtual to physical page translation to the TLB */
 	unsigned long virtualPageNumber = getVirtualPageNumber(va);
 	unsigned long tlbIndex = virtualPageNumber % TLB_ENTRIES;
-	tlbNode currentTLBEntry = *(tlbBaseAddress + tlbIndex);
-	currentTLBEntry.virtualPageNumber = virtualPageNumber;
-	currentTLBEntry.physicalPageAddress = pa;
-	currentTLBEntry.metadata |= TLB_VALID_BIT_MASK;
-	
+	tlbNode* currentTLBEntry = (tlbBaseAddress + tlbIndex);
+	currentTLBEntry->virtualPageNumber = virtualPageNumber;
+	currentTLBEntry->physicalPageAddress = pa;
+	currentTLBEntry->metadata |= TLB_VALID_BIT_MASK;
+	//printf("Added TLB ENTRY: %llu bit set, virtualPageNumber %lu\n", (currentTLBEntry->metadata & TLB_VALID_BIT_MASK), currentTLBEntry->virtualPageNumber);
 	/**
 	unsigned long originalTLBIndex = virtualPageNumber % TLB_ENTRIES;
 	unsigned long tlbIndex = originalTLBIndex;
@@ -436,10 +436,13 @@ void* check_TLB(void *va) {
     /* Part 2: TLB lookup code here */
     unsigned long virtualPageNumber = getVirtualPageNumber(va);
 	unsigned long tlbIndex = virtualPageNumber % TLB_ENTRIES;
-	tlbNode currentTLBEntry = *(tlbBaseAddress + tlbIndex);
-	if ((currentTLBEntry.metadata & TLB_VALID_BIT_MASK) == 1 && currentTLBEntry.virtualPageNumber == virtualPageNumber) {
+	//printf("Index: %lu\n", tlbIndex);
+	tlbNode* currentTLBEntry = (tlbBaseAddress + tlbIndex);
+	//printf("Current TLB ENTRY: %llu bit set, virtualPageNumber %lu, %lu\n", (currentTLBEntry->metadata & TLB_VALID_BIT_MASK), currentTLBEntry->virtualPageNumber, virtualPageNumber);
+	if ((currentTLBEntry->metadata & TLB_VALID_BIT_MASK) == 1 && currentTLBEntry->virtualPageNumber == virtualPageNumber) {
 		tlbHit++;
-		return currentTLBEntry.physicalPageAddress;
+		unsigned long offset = ((unsigned long)va) & OFFSET_MASK;
+		return currentTLBEntry->physicalPageAddress + offset;
 	}
 	tlbMiss++;
 	return NULL;
@@ -465,9 +468,9 @@ void* check_TLB(void *va) {
 void remove_TLB(void *va) {
 	unsigned long virtualPageNumber = getVirtualPageNumber(va);
 	unsigned long tlbIndex = virtualPageNumber % TLB_ENTRIES;
-	tlbNode currentTLBEntry = *(tlbBaseAddress + tlbIndex);
-	if ((currentTLBEntry.metadata & TLB_VALID_BIT_MASK) == 1 && currentTLBEntry.virtualPageNumber == virtualPageNumber) {
-		currentTLBEntry.metadata &= (((1ULL << 8) - 1) ^ TLB_VALID_BIT_MASK);
+	tlbNode* currentTLBEntry = (tlbBaseAddress + tlbIndex);
+	if ((currentTLBEntry->metadata & TLB_VALID_BIT_MASK) == 1 && currentTLBEntry->virtualPageNumber == virtualPageNumber) {
+		currentTLBEntry->metadata &= (((1ULL << 8) - 1) ^ TLB_VALID_BIT_MASK);
 	}
 	/**
 	unsigned long virtualPageNumber = getVirtualPageNumber(va);
@@ -494,6 +497,7 @@ void print_TLB_missrate() {
     double miss_rate = 0;	
 
     /*Part 2 Code here to calculate and print the TLB miss rate*/
+    printf("Misses %lu, Hits %lu\n", tlbMiss, tlbHit);
     if (tlbHit != 0 || tlbMiss != 0) { 
     	miss_rate = (((double)tlbMiss) / (tlbHit + tlbMiss));
     }
@@ -711,8 +715,7 @@ void put_value(void *va, void *val, int size) {
      * than one page. Therefore, you may have to find multiple pages using translate()
      * function.
      */
-     
-    unsigned long offset = ((unsigned long)va) & OFFSET_MASK;
+    unsigned long offset = ((unsigned long) va) & OFFSET_MASK;
     unsigned long numberOfPagesToAllocate = 0;
     if ( size > ((PGSIZE) - offset)) { 
     	unsigned long remainingSize = size - ((PGSIZE) - offset);
@@ -740,13 +743,14 @@ void put_value(void *va, void *val, int size) {
  			write(2, "[E]: Translation failed but virtual bitmap said page was allocated\n", sizeof("[E]: Translation failed but virtual bitmap said page was allocated\n")); 
  		}
    	}
+   	
    	memcpy(physicalAddress, ((char*)val) + copied, sizeof(char) * copy);
    	size -= copy;
    	copied += sizeof(char) * copy;
    	copy = size < (PGSIZE) ? size : (PGSIZE);
    
 	virtualPageNumber = getVirtualPageNumber(va) + 1;
-	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate, size > 0; pageIndex++, virtualPageNumber++) { 
+	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate && size > 0; pageIndex++, virtualPageNumber++) { 
      	void* virtualPageAddress = getVirtualPageAddress(virtualPageNumber);
 		void* physicalAddress = check_TLB(virtualPageAddress);
      	if (physicalAddress == NULL) {
@@ -772,7 +776,8 @@ void get_value(void *va, void *val, int size) {
     /* HINT: put the values pointed to by "va" inside the physical memory at given
     * "val" address. Assume you can access "val" directly by derefencing them.
     */
-    unsigned long offset = ((unsigned long)va) & OFFSET_MASK;
+    
+    unsigned long offset = ((unsigned long) va) & OFFSET_MASK;
     unsigned long numberOfPagesToAllocate = 0;
     if ( size > ((PGSIZE) - offset)) { 
     	unsigned long remainingSize = size - ((PGSIZE) - offset);
@@ -806,7 +811,7 @@ void get_value(void *va, void *val, int size) {
    	copy = size < (PGSIZE) ? size : (PGSIZE);
    
 	virtualPageNumber = getVirtualPageNumber(va) + 1;
-	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate, size > 0; pageIndex++, virtualPageNumber++) { 
+	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate && size > 0; pageIndex++, virtualPageNumber++) { 
      	void* virtualPageAddress = getVirtualPageAddress(virtualPageNumber);
 		void* physicalAddress = check_TLB(virtualPageAddress);
      	if (physicalAddress == NULL) {
