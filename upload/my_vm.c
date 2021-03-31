@@ -712,22 +712,42 @@ void put_value(void *va, void *val, int size) {
      * function.
      */
      
-    unsigned long numberOfPagesToAllocate = (unsigned long) ceil((double)size / PGSIZE);
+    unsigned long offset = ((unsigned long)va) & OFFSET_MASK;
+    unsigned long numberOfPagesToAllocate = 0;
+    if ( size > ((PGSIZE) - offset)) { 
+    	unsigned long remainingSize = size - ((PGSIZE) - offset);
+    	numberOfPagesToAllocate = (unsigned long) ceil((double)remainingSize / (PGSIZE));
+    } 
 	unsigned long virtualPageNumber = getVirtualPageNumber(va);
 	unsigned long copied = 0;
-	unsigned long copy = size < (PGSIZE) ? size : (PGSIZE);
-	unsigned long offset = ((unsigned long)va) & OFFSET_MASK;
+	unsigned long copy = size > ((PGSIZE) - offset) ? ((PGSIZE) - offset) : size;
+	
 	pthread_mutex_lock(&mallocLock);
 	// Safety check to see if the pages are actually allocated
-    for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
+	for(unsigned long pageIndex = 0; pageIndex <= numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
      	if(checkAllocatedVirtualBitmapPN(virtualPageNumber) == 0) {
      		pthread_mutex_unlock(&mallocLock);
      		return;
     	}
     }
-	virtualPageNumber = getVirtualPageNumber(va);
-	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
-		void* virtualPageAddress = getVirtualPageAddress(virtualPageNumber);
+    
+   	void* physicalAddress = check_TLB(va);
+   	if (physicalAddress == NULL) {
+   		physicalAddress = translate(pageDirectoryBase, va);
+ 		if (physicalAddress != NULL) { 
+ 			add_TLB(va, physicalAddress);
+ 		} else { 
+ 			write(2, "[E]: Translation failed but virtual bitmap said page was allocated\n", sizeof("[E]: Translation failed but virtual bitmap said page was allocated\n")); 
+ 		}
+   	}
+   	memcpy(physicalAddress, ((char*)val) + copied, sizeof(char) * copy);
+   	size -= copy;
+   	copied += sizeof(char) * copy;
+   	copy = size < (PGSIZE) ? size : (PGSIZE);
+   
+	virtualPageNumber = getVirtualPageNumber(va) + 1;
+	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate, size > 0; pageIndex++, virtualPageNumber++) { 
+     	void* virtualPageAddress = getVirtualPageAddress(virtualPageNumber);
 		void* physicalAddress = check_TLB(virtualPageAddress);
      	if (physicalAddress == NULL) {
      		physicalAddress = translate(pageDirectoryBase, virtualPageAddress);
@@ -737,11 +757,8 @@ void put_value(void *va, void *val, int size) {
      			write(2, "[E]: Translation failed but virtual bitmap said page was allocated\n", sizeof("[E]: Translation failed but virtual bitmap said page was allocated\n")); 
      		}
      	}
-     	if (pageIndex == 0) {
-     		physicalAddress += offset;
-     	}
      	memcpy(physicalAddress, ((char*)val) + copied, sizeof(char) * copy);
-     	size -= PGSIZE;
+     	size -= copy;
      	copied += sizeof(char) * copy;
      	copy = size < (PGSIZE) ? size : (PGSIZE);
     }
@@ -755,22 +772,41 @@ void get_value(void *va, void *val, int size) {
     /* HINT: put the values pointed to by "va" inside the physical memory at given
     * "val" address. Assume you can access "val" directly by derefencing them.
     */
-    
-    unsigned long numberOfPagesToAllocate = (unsigned long) ceil((double)size / PGSIZE);
+    unsigned long offset = ((unsigned long)va) & OFFSET_MASK;
+    unsigned long numberOfPagesToAllocate = 0;
+    if ( size > ((PGSIZE) - offset)) { 
+    	unsigned long remainingSize = size - ((PGSIZE) - offset);
+    	numberOfPagesToAllocate = (unsigned long) ceil((double)remainingSize / (PGSIZE));
+    } 
 	unsigned long virtualPageNumber = getVirtualPageNumber(va);
 	unsigned long copied = 0;
-	unsigned long copy = size < (PGSIZE) ? size : (PGSIZE);
-	unsigned long offset = ((unsigned long)va) & OFFSET_MASK;
+	unsigned long copy = size > ((PGSIZE) - offset) ? ((PGSIZE) - offset) : size;
+	
 	pthread_mutex_lock(&mallocLock);
 	// Safety check to see if the pages are actually allocated
-	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
+	for(unsigned long pageIndex = 0; pageIndex <= numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) {
      	if(checkAllocatedVirtualBitmapPN(virtualPageNumber) == 0) {
      		pthread_mutex_unlock(&mallocLock);
      		return;
     	}
     }
-	virtualPageNumber = getVirtualPageNumber(va);
-	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate; pageIndex++, virtualPageNumber++) { 
+    
+   	void* physicalAddress = check_TLB(va);
+   	if (physicalAddress == NULL) {
+   		physicalAddress = translate(pageDirectoryBase, va);
+ 		if (physicalAddress != NULL) { 
+ 			add_TLB(va, physicalAddress);
+ 		} else { 
+ 			write(2, "[E]: Translation failed but virtual bitmap said page was allocated\n", sizeof("[E]: Translation failed but virtual bitmap said page was allocated\n")); 
+ 		}
+   	}
+   	memcpy(((char*)val) + copied, physicalAddress, sizeof(char) * copy);
+   	size -= copy;
+   	copied += sizeof(char) * copy;
+   	copy = size < (PGSIZE) ? size : (PGSIZE);
+   
+	virtualPageNumber = getVirtualPageNumber(va) + 1;
+	for(unsigned long pageIndex = 0; pageIndex < numberOfPagesToAllocate, size > 0; pageIndex++, virtualPageNumber++) { 
      	void* virtualPageAddress = getVirtualPageAddress(virtualPageNumber);
 		void* physicalAddress = check_TLB(virtualPageAddress);
      	if (physicalAddress == NULL) {
@@ -781,11 +817,8 @@ void get_value(void *va, void *val, int size) {
      			write(2, "[E]: Translation failed but virtual bitmap said page was allocated\n", sizeof("[E]: Translation failed but virtual bitmap said page was allocated\n")); 
      		}
      	}
-     	if (pageIndex == 0) {
-     		physicalAddress += offset;
-     	}
      	memcpy(((char*)val) + copied, physicalAddress, sizeof(char) * copy);
-     	size -= PGSIZE;
+     	size -= copy;
      	copied += sizeof(char) * copy;
      	copy = size < (PGSIZE) ? size : (PGSIZE);
     }
