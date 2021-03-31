@@ -21,10 +21,10 @@ typedef struct tlbNode {
 	char metadata; // first bit will be valid bit and 2nd bit will be reference bit
 } tlbNode;
 
-#define VIRTUAL_BITMAP_SIZE ((int) (ceil((MAX_MEMSIZE)/ ((PGSIZE) * 8.0))))
-#define PHYSICAL_BITMAP_SIZE ((int) (ceil((MEMSIZE) / ((PGSIZE) * 8.0))))
+#define VIRTUAL_BITMAP_SIZE ((unsigned long) (ceil((MAX_MEMSIZE)/ ((PGSIZE) * 8.0))))
+#define PHYSICAL_BITMAP_SIZE ((unsigned long) (ceil((MEMSIZE) / ((PGSIZE) * 8.0))))
 #define ADDRESS_SPACE_BITS (sizeof(void*) * 8)
-#define OFFSET_BITS ((int)log2(PGSIZE))
+#define OFFSET_BITS ((unsigned long)log2(PGSIZE))
 #define OFFSET_MASK ((1ULL << OFFSET_BITS) - 1)
 #define ENTRY_SIZE (sizeof(void*))
 #define NUMBER_PAGE_TABLE_ENTRIES ((PGSIZE) / ENTRY_SIZE)
@@ -140,11 +140,29 @@ pte_t *translate(pde_t *pgdir, void *va) {
 	// Page Table Entries = Page Table Size / Entry Size 
 	// Page Table Bits = log2(Page Table Entries)
 	unsigned int pageTableBits = (int)log2((PGSIZE / sizeof(void*)));
-	unsigned int pageTableLevels = 1;
-	while (virtualPageBits > pageTableBits) {
-		pageTableLevels++;
-		virtualPageBits -= pageTableBits;
-	}
+	unsigned int pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
+	if (pageTableLevels * pageTableBits == virtualPageBits) {
+		virtualPageBits = pageTableBits; 
+	} else if (pageTableLevels * pageTableBits > virtualPageBits) {
+		if ((virtualPageBits % pageTableLevels) == 0) {
+			pageTableBits = virtualPageBits /  pageTableLevels;
+			virtualPageBits = virtualPageBits / pageTableLevels;
+		} else {
+			pageTableBits = floor(virtualPageBits / ((double)pageTableLevels));
+			while (pageTableLevels > 1) {
+				virtualPageBits -= pageTableBits;
+				pageTableLevels--;
+			}
+		}
+	} else {
+		while (pageTableLevels > 1) {
+			virtualPageBits -= pageTableBits;
+			pageTableLevels--;
+		}
+	} 
+	//printf("The number of bits used for page directory is %u. The number of bits used for all the other pages is %u\n", virtualPageBits, pageTableBits);
+	pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
+	
 	// At this point, virtualPageBits is equal to the # of bits for last page 
 	// table (Used for edgecase where, # of bits for last page table != # of bits
 	// for each page table since it could not be split evenly
@@ -193,18 +211,35 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
 	printf("Mapping %lu VA to %lu PA\n", ((unsigned long)va), ((unsigned long)pa));
-	unsigned long offset = ((unsigned long)va) & (OFFSET_MASK);
 	
 	unsigned int virtualPageBits = VIRTUAL_PAGE_NUMBER_BITS;
 	
 	// Page Table Entries = Page Table Size / Entry Size 
 	// Page Table Bits = log2(Page Table Entries)
 	unsigned int pageTableBits = (int)log2((PGSIZE / sizeof(void*)));
-	unsigned int pageTableLevels = 1;
-	while(virtualPageBits > pageTableBits) {
-		pageTableLevels++;
-		virtualPageBits -= pageTableBits;
-	}
+	unsigned int pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
+	if (pageTableLevels * pageTableBits == virtualPageBits) {
+		virtualPageBits = pageTableBits; 
+	} else if (pageTableLevels * pageTableBits > virtualPageBits) {
+		if ((virtualPageBits % pageTableLevels) == 0) {
+			pageTableBits = virtualPageBits /  pageTableLevels;
+			virtualPageBits = virtualPageBits / pageTableLevels;
+		} else {
+			pageTableBits = floor(virtualPageBits / ((double)pageTableLevels));
+			while (pageTableLevels > 1) {
+				virtualPageBits -= pageTableBits;
+				pageTableLevels--;
+			}
+		}
+	} else {
+		while (pageTableLevels > 1) {
+			virtualPageBits -= pageTableBits;
+			pageTableLevels--;
+		}
+	} 
+	//printf("The number of bits used for page directory is %u. The number of bits used for all the other pages is %u\n", virtualPageBits, pageTableBits);
+	pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
+	
 	// At this point, virtualPageBits is equal to the # of bits for last page 
 	// table (Used for edgecase where, # of bits for last page table != # of bits
 	// for each page table since it could not be split evenly
@@ -508,13 +543,55 @@ void *a_malloc(unsigned int num_bytes) {
 		createTLB();
 	}
 	
-	if (pageDirectoryBase == NULL) { 
-		pageDirectoryBase = get_next_physicalavail();
-		if (pageDirectoryBase == NULL) { 
-			write(2, "Could not allocate page directory!\n", sizeof("Could not allocate page directory!\n"));
-			exit(-1);
+	if (pageDirectoryBase == NULL) {
+		unsigned int virtualPageBits = VIRTUAL_PAGE_NUMBER_BITS;
+		
+		// Page Table Entries = Page Table Size / Entry Size 
+		// Page Table Bits = log2(Page Table Entries)
+		unsigned int pageTableBits = (int)log2((PGSIZE / sizeof(void*)));
+		unsigned int pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
+		if (pageTableLevels * pageTableBits == virtualPageBits) {
+			virtualPageBits = pageTableBits; 
+		} else if (pageTableLevels * pageTableBits > virtualPageBits) {
+			if ((virtualPageBits % pageTableLevels) == 0) {
+				pageTableBits = virtualPageBits /  pageTableLevels;
+				virtualPageBits = virtualPageBits / pageTableLevels;
+			} else {
+				pageTableBits = floor(virtualPageBits / ((double)pageTableLevels));
+				while (pageTableLevels > 1) {
+					virtualPageBits -= pageTableBits;
+					pageTableLevels--;
+				}
+			}
+		} else {
+			while (pageTableLevels > 1) {
+				virtualPageBits -= pageTableBits;
+				pageTableLevels--;
+			}
+		} 
+		printf("The number of bits used for page directory is %u. The number of bits used for all the other pages is %u\n", virtualPageBits, pageTableBits);
+		pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
+		
+
+		unsigned long numberOfContinousPhysicalPages = (unsigned long) ceil((1 << virtualPageBits) / ((double)(PGSIZE)));
+		if (virtualPageBits == 0) {
+			numberOfContinousPhysicalPages = 0;
 		}
-		toggleBitPhysicalBitmapPA(pageDirectoryBase);
+		printf("The number of pages to allocate continously is %lu\n", numberOfContinousPhysicalPages);
+		while (numberOfContinousPhysicalPages != 0) { 
+			void* physicalAddress = get_next_physicalavail();
+			if (pageDirectoryBase == NULL) {
+				pageDirectoryBase = physicalAddress;
+			}
+			
+			if (physicalAddress == NULL) { 
+				write(2, "Could not allocate page directory!\n", sizeof("Could not allocate page directory!\n"));
+				exit(-1);
+			}
+			toggleBitPhysicalBitmapPA(physicalAddress);
+			numberOfContinousPhysicalPages--;
+		}
+
 	}
 	
 	unsigned long numberOfPagesToAllocate = (unsigned long) ceil((double)num_bytes / PGSIZE);
