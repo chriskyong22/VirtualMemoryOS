@@ -139,29 +139,17 @@ pte_t *translate(pde_t *pgdir, void *va) {
 	
 	// Page Table Entries = Page Table Size / Entry Size 
 	// Page Table Bits = log2(Page Table Entries)
-	unsigned int pageTableBits = (int)log2((PGSIZE / sizeof(void*)));
+	unsigned int pageTableBits = (int)log2((PGSIZE / ENTRY_SIZE));
 	unsigned int pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
-	if (pageTableLevels * pageTableBits == virtualPageBits) {
-		virtualPageBits = pageTableBits; 
-	} else if (pageTableLevels * pageTableBits > virtualPageBits) {
-		if ((virtualPageBits % pageTableLevels) == 0) {
-			pageTableBits = virtualPageBits /  pageTableLevels;
-			virtualPageBits = virtualPageBits / pageTableLevels;
-		} else {
-			if (virtualPageBits <= pageTableBits) {
-				pageTableBits = floor(virtualPageBits / ((double)pageTableLevels));
-			}
-			while (pageTableLevels > 1) {
-				virtualPageBits -= pageTableBits;
-				pageTableLevels--;
-			}
+	if (pageTableLevels * pageTableBits > virtualPageBits) {
+		if (virtualPageBits <= pageTableBits) {
+			pageTableBits = floor(virtualPageBits / ((double)pageTableLevels));
 		}
-	} else {
-		while (pageTableLevels > 1) {
-			virtualPageBits -= pageTableBits;
-			pageTableLevels--;
-		}
-	} 
+	}
+	while (pageTableLevels > 1) {
+		virtualPageBits -= pageTableBits;
+		pageTableLevels--;
+	}
 	//printf("The number of bits used for page directory is %u. The number of bits used for all the other pages is %u\n", virtualPageBits, pageTableBits);
 	pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
 	
@@ -220,27 +208,15 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 	// Page Table Bits = log2(Page Table Entries)
 	unsigned int pageTableBits = (int)log2((PGSIZE / sizeof(void*)));
 	unsigned int pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
-	if (pageTableLevels * pageTableBits == virtualPageBits) {
-		virtualPageBits = pageTableBits; 
-	} else if (pageTableLevels * pageTableBits > virtualPageBits) {
-		if ((virtualPageBits % pageTableLevels) == 0) {
-			pageTableBits = virtualPageBits /  pageTableLevels;
-			virtualPageBits = virtualPageBits / pageTableLevels;
-		} else {
-			if (virtualPageBits <= pageTableBits) {
-				pageTableBits = floor(virtualPageBits / ((double)pageTableLevels));
-			}
-			while (pageTableLevels > 1) {
-				virtualPageBits -= pageTableBits;
-				pageTableLevels--;
-			}
-		}
-	} else {
-		while (pageTableLevels > 1) {
-			virtualPageBits -= pageTableBits;
-			pageTableLevels--;
+	if (pageTableLevels * pageTableBits > virtualPageBits) {
+		if (virtualPageBits <= pageTableBits) {
+			pageTableBits = floor(virtualPageBits / ((double)pageTableLevels));
 		}
 	} 
+	while (pageTableLevels > 1) {
+		virtualPageBits -= pageTableBits;
+		pageTableLevels--;
+	}
 	//printf("The number of bits used for page directory is %u. The number of bits used for all the other pages is %u\n", virtualPageBits, pageTableBits);
 	pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
 	
@@ -554,32 +530,18 @@ void *a_malloc(unsigned int num_bytes) {
 		// Page Table Bits = log2(Page Table Entries)
 		unsigned int pageTableBits = (int)log2((PGSIZE / sizeof(void*)));
 		unsigned int pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
-		if (pageTableLevels * pageTableBits == virtualPageBits) {
-			virtualPageBits = pageTableBits; 
-		} else if (pageTableLevels * pageTableBits > virtualPageBits) {
-			if ((virtualPageBits % pageTableLevels) == 0) {
-				pageTableBits = virtualPageBits /  pageTableLevels;
-				virtualPageBits = virtualPageBits / pageTableLevels;
-			} else {
-				if (virtualPageBits <= pageTableBits) {
-					pageTableBits = floor(virtualPageBits / ((double)pageTableLevels));
-				}
-				while (pageTableLevels > 1) {
-					virtualPageBits -= pageTableBits;
-					pageTableLevels--;
-				}
-			}
-		} else {
-			while (pageTableLevels > 1) {
-				virtualPageBits -= pageTableBits;
-				pageTableLevels--;
+		if (pageTableLevels * pageTableBits > virtualPageBits) {
+			if (virtualPageBits <= pageTableBits) {
+				pageTableBits = floor(virtualPageBits / ((double)pageTableLevels));
 			}
 		} 
+		while (pageTableLevels > 1) {
+			virtualPageBits -= pageTableBits;
+			pageTableLevels--;
+		}
 		printf("The number of bits used for page directory is %u. The number of bits used for all the other pages is %u\n", virtualPageBits, pageTableBits);
-		pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
 		
-
-		unsigned long numberOfContinousPhysicalPages = (unsigned long) ceil((1 << virtualPageBits) / ((double)(PGSIZE)));
+		unsigned long numberOfContinousPhysicalPages = (unsigned long) ceil(((1 << virtualPageBits) * ENTRY_SIZE) / ((double)(PGSIZE)));
 		if (virtualPageBits == 0) {
 			numberOfContinousPhysicalPages = 0;
 		}
