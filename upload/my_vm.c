@@ -403,6 +403,7 @@ void add_TLB(void *va, void *pa) {
 	currentTLBEntry->virtualPageNumber = virtualPageNumber;
 	currentTLBEntry->physicalPageAddress = pa;
 	currentTLBEntry->metadata |= TLB_VALID_BIT_MASK;
+	tlbMiss++;
 	//printf("Added TLB ENTRY: %llu bit set, virtualPageNumber %lu\n", (currentTLBEntry->metadata & TLB_VALID_BIT_MASK), currentTLBEntry->virtualPageNumber);
 	/**
 	unsigned long originalTLBIndex = virtualPageNumber % TLB_ENTRIES;
@@ -444,7 +445,6 @@ void* check_TLB(void *va) {
 		unsigned long offset = ((unsigned long)va) & OFFSET_MASK;
 		return currentTLBEntry->physicalPageAddress + offset;
 	}
-	tlbMiss++;
 	return NULL;
     /**
 	unsigned long virtualPageNumber = getVirtualPageNumber(va);
@@ -965,7 +965,6 @@ void freeAllocationLinkedList(allocationLinkedList* list) {
 	if (list == NULL) {
 		return;
 	}
-	printf("Freeing\n");
 	allocationNode* current = list->head;
 	while (current != NULL) {
 		allocationNode* temp = current;
@@ -973,7 +972,6 @@ void freeAllocationLinkedList(allocationLinkedList* list) {
 		free(temp);
 	}
 	free(list);
-	printf("Done Freeing\n");
 }
 
 void insert(allocationLinkedList* list, void* pageEntry, void* physicalAddress) {
