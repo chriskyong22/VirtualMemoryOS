@@ -143,7 +143,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
 	unsigned int pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
 	if (pageTableLevels * pageTableBits > virtualPageBits) {
 		if (virtualPageBits <= pageTableBits) {
-			pageTableBits = floor(virtualPageBits / ((double)pageTableLevels));
+			pageTableBits = ceil(virtualPageBits / ((double)pageTableLevels));
 		}
 	}
 	while (pageTableLevels > 1) {
@@ -210,7 +210,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 	unsigned int pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
 	if (pageTableLevels * pageTableBits > virtualPageBits) {
 		if (virtualPageBits <= pageTableBits) {
-			pageTableBits = floor(virtualPageBits / ((double)pageTableLevels));
+			pageTableBits = ceil(virtualPageBits / ((double)pageTableLevels));
 		}
 	} 
 	while (pageTableLevels > 1) {
@@ -536,7 +536,7 @@ void *a_malloc(unsigned int num_bytes) {
 		unsigned int pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
 		if (pageTableLevels * pageTableBits > virtualPageBits) {
 			if (virtualPageBits <= pageTableBits) {
-				pageTableBits = floor(virtualPageBits / ((double)pageTableLevels));
+				pageTableBits = ceil(virtualPageBits / ((double)pageTableLevels));
 			}
 		} 
 		while (pageTableLevels > 1) {
