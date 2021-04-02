@@ -142,7 +142,8 @@ pte_t *translate(pde_t *pgdir, void *va) {
 	unsigned int pageTableBits = (int)log2((PGSIZE / ENTRY_SIZE));
 	unsigned int pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
 	if (pageTableLevels * pageTableBits > virtualPageBits) {
-		if (virtualPageBits <= pageTableBits) {
+		if (virtualPageBits <= pageTableBits || 
+				pageTableBits * (pageTableLevels - 1) >= virtualPageBits) {
 			pageTableBits = ceil(virtualPageBits / ((double)pageTableLevels));
 		}
 	}
@@ -209,9 +210,10 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 	unsigned int pageTableBits = (int)log2((PGSIZE / sizeof(void*)));
 	unsigned int pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
 	if (pageTableLevels * pageTableBits > virtualPageBits) {
-		if (virtualPageBits <= pageTableBits) {
+		if (virtualPageBits <= pageTableBits || 
+				pageTableBits * (pageTableLevels - 1) >= virtualPageBits) {
 			pageTableBits = ceil(virtualPageBits / ((double)pageTableLevels));
-		}
+		} 
 	} 
 	while (pageTableLevels > 1) {
 		virtualPageBits -= pageTableBits;
@@ -501,7 +503,7 @@ void print_TLB_missrate() {
     if (tlbHit != 0 || tlbMiss != 0) { 
     	miss_rate = (((double)tlbMiss) / (tlbHit + tlbMiss));
     }
-    fprintf(stderr, "TLB miss rate %lf \n", miss_rate);
+    fprintf(stderr, "TLB miss rate %.17g \n", miss_rate);
 }
 
 /* Function responsible for allocating pages
@@ -535,7 +537,8 @@ void *a_malloc(unsigned int num_bytes) {
 		unsigned int pageTableBits = (int)log2((PGSIZE / sizeof(void*)));
 		unsigned int pageTableLevels = (ADDRESS_SPACE_BITS) / 16.0;
 		if (pageTableLevels * pageTableBits > virtualPageBits) {
-			if (virtualPageBits <= pageTableBits) {
+			if (virtualPageBits <= pageTableBits || 
+					pageTableBits * (pageTableLevels - 1) >= virtualPageBits) {
 				pageTableBits = ceil(virtualPageBits / ((double)pageTableLevels));
 			}
 		} 
