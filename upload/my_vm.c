@@ -403,6 +403,7 @@ void add_TLB(void *va, void *pa) {
 	unsigned long tlbIndex = virtualPageNumber % TLB_ENTRIES;
 	tlbNode* currentTLBEntry = (tlbBaseAddress + tlbIndex);
 	currentTLBEntry->virtualPageNumber = virtualPageNumber;
+	pa = (void*) ((((unsigned long) pa) >> OFFSET_BITS) << OFFSET_BITS);
 	currentTLBEntry->physicalPageAddress = pa;
 	currentTLBEntry->metadata |= TLB_VALID_BIT_MASK;
 	tlbMiss++;
@@ -742,8 +743,7 @@ void put_value(void *va, void *val, int size) {
    	if (physicalAddress == NULL) {
    		physicalAddress = translate(pageDirectoryBase, va);
  		if (physicalAddress != NULL) { 
- 			void* startOfPhysicalAddress = (physicalAddress >> OFFSET_BITS) << OFFSET_BITS;
- 			add_TLB(va, startOfPhysicalAddress);
+ 			add_TLB(va, physicalAddress);
  		} else { 
  			write(2, "[E]: Translation failed but virtual bitmap said page was allocated\n", sizeof("[E]: Translation failed but virtual bitmap said page was allocated\n")); 
  		}
@@ -805,8 +805,7 @@ void get_value(void *va, void *val, int size) {
    	if (physicalAddress == NULL) {
    		physicalAddress = translate(pageDirectoryBase, va);
  		if (physicalAddress != NULL) { 
- 			void* startOfPhysicalAddress = (physicalAddress >> OFFSET_BITS) << OFFSET_BITS;
- 			add_TLB(va, startOfPhysicalAddress);
+ 			add_TLB(va, physicalAddress);
  		} else { 
  			write(2, "[E]: Translation failed but virtual bitmap said page was allocated\n", sizeof("[E]: Translation failed but virtual bitmap said page was allocated\n")); 
  		}
