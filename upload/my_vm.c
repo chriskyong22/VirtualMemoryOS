@@ -446,7 +446,7 @@ void* check_TLB(void *va) {
 	if ((currentTLBEntry->metadata & TLB_VALID_BIT_MASK) == 1 && currentTLBEntry->virtualPageNumber == virtualPageNumber) {
 		tlbHit++;
 		unsigned long offset = ((unsigned long)va) & OFFSET_MASK;
-		return currentTLBEntry->physicalPageAddress + offset;
+		return ((char*)currentTLBEntry->physicalPageAddress) + offset;
 	}
 	return NULL;
     /**
