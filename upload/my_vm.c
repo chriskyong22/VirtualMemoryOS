@@ -31,7 +31,7 @@ typedef struct tlbNode {
 #define VIRTUAL_PAGE_NUMBER_MASK (MAX_VIRTUAL_PAGE_INDEX << OFFSET_BITS)
 #define VIRTUAL_PAGE_NUMBER_BITS (ADDRESS_SPACE_BITS - OFFSET_BITS)
 #define MAX_VIRTUAL_PAGE_INDEX ((1ULL << VIRTUAL_PAGE_NUMBER_BITS) - 1)
-#define MAX_VIRTUAL_ADDRESS (ULONG_MAX)
+#define MAX_VIRTUAL_ADDRESS (MAX_MEMSIZE)
 #define TLB_VALID_BIT_MASK (1ULL << 0)
 #define TLB_REFERENCE_BIT_MASK (1ULL << 1)
 
@@ -697,6 +697,7 @@ void a_free(void *va, int size) {
      	void* physicalAddress = check_TLB(virtualPageAddress);
      	if (physicalAddress == NULL) {
      		physicalAddress = translate(pageDirectoryBase, virtualPageAddress);
+     		tlbMiss++;
      	} else { 
      		remove_TLB(virtualPageAddress);
      	}
