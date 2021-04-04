@@ -742,7 +742,8 @@ void put_value(void *va, void *val, int size) {
    	if (physicalAddress == NULL) {
    		physicalAddress = translate(pageDirectoryBase, va);
  		if (physicalAddress != NULL) { 
- 			add_TLB(va, physicalAddress);
+ 			void* startOfPhysicalAddress = (physicalAddress >> OFFSET_BITS) << OFFSET_BITS;
+ 			add_TLB(va, startOfPhysicalAddress);
  		} else { 
  			write(2, "[E]: Translation failed but virtual bitmap said page was allocated\n", sizeof("[E]: Translation failed but virtual bitmap said page was allocated\n")); 
  		}
@@ -804,7 +805,8 @@ void get_value(void *va, void *val, int size) {
    	if (physicalAddress == NULL) {
    		physicalAddress = translate(pageDirectoryBase, va);
  		if (physicalAddress != NULL) { 
- 			add_TLB(va, physicalAddress);
+ 			void* startOfPhysicalAddress = (physicalAddress >> OFFSET_BITS) << OFFSET_BITS;
+ 			add_TLB(va, startOfPhysicalAddress);
  		} else { 
  			write(2, "[E]: Translation failed but virtual bitmap said page was allocated\n", sizeof("[E]: Translation failed but virtual bitmap said page was allocated\n")); 
  		}
