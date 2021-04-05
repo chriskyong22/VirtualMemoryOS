@@ -100,18 +100,25 @@ void set_physical_mem() {
 	// Means the number of pages in the physical space is not a multiple of 8 
 	// and thus we will have extra bits in the last char that should not be used.
 	if (((MEMSIZE) / (PGSIZE)) % 8 != 0) {
+		// (MEMSIZE) / PGSIZE will give us the number of pages that 
+		// we need to account for. We % 8 to see the pages that require an extra
+		// char but we should not use the full char (basically the number of bits
+		// that should be set to 0 in the last char)
 		int validBits = ((MEMSIZE/PGSIZE) % 8);
 		int validBitsMask = (1 << validBits) - 1;
 		char setMask = bitMask ^ validBitsMask;
 		*(physicalBitmap + (PHYSICAL_BITMAP_SIZE - 1)) = setMask;
 	} 
-	unsigned long temp2 = PHYSICAL_BITMAP_SIZE;
+	
 	virtualBitmap = calloc(VIRTUAL_BITMAP_SIZE, sizeof(char));
 	if (virtualBitmap == NULL) {
 		exit(-1);
 	}
-	unsigned long temp1 = VIRTUAL_BITMAP_SIZE;
 	if (((MAX_MEMSIZE) / (PGSIZE)) % 8 != 0) {
+		// (MAX_MEMSIZE) / (PGSIZE) will give us the number of pages that 
+		// we need to account for. We % 8 to see the pages that require an extra
+		// char but we should not use the full char (basically the number of bits
+		// that should be set to 0 in the last char)
 		int validBits = (((MAX_MEMSIZE) / (PGSIZE)) % 8);
 		int validBitsMask = (1 << validBits) - 1;
 		char setMask = bitMask ^ validBitsMask;
@@ -955,7 +962,6 @@ int checkValidVirtualPageNumber(unsigned long virtualPageNumber) {
 }
 
 void zeroOutPhysicalPage(void* physicalPageAddress) {
-	unsigned long temp = PGSIZE;
 	memset(physicalPageAddress, '\0', sizeof(char) * PGSIZE);
 }
 
