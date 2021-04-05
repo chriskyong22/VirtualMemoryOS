@@ -512,7 +512,7 @@ void print_TLB_missrate() {
     if (tlbHit != 0 || tlbMiss != 0) { 
     	miss_rate = (((double)tlbMiss) / (tlbHit + tlbMiss));
     }
-    fprintf(stderr, "TLB miss rate %.17g \n", miss_rate);
+    fprintf(stderr, "TLB miss rate %.17g \n", (miss_rate * 100.0));
 }
 
 /* Function responsible for allocating pages
