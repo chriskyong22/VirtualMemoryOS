@@ -2,7 +2,6 @@
 #include <unistd.h>
 #include <string.h>
 #include <limits.h>
-#include <math.h>
 #include <pthread.h>
 
 typedef struct allocationNode {
@@ -21,8 +20,8 @@ typedef struct tlbNode {
 	char metadata; // first bit will be valid bit
 } tlbNode;
 
-#define VIRTUAL_BITMAP_SIZE ((unsigned long) (ceil((MAX_MEMSIZE)/ ((PGSIZE) * 8.0))))
-#define PHYSICAL_BITMAP_SIZE ((unsigned long) (ceil((MEMSIZE) / ((PGSIZE) * 8.0))))
+#define VIRTUAL_BITMAP_SIZE ((unsigned long) (customCeil((MAX_MEMSIZE)/ ((PGSIZE) * 8.0))))
+#define PHYSICAL_BITMAP_SIZE ((unsigned long) (customCeil((MEMSIZE) / ((PGSIZE) * 8.0))))
 #define ADDRESS_SPACE_BITS (sizeof(void*) * 8)
 #define OFFSET_BITS ((unsigned long)log2(PGSIZE))
 #define OFFSET_MASK ((1ULL << OFFSET_BITS) - 1)
@@ -58,6 +57,7 @@ static int checkAllocatedPhysicalBitmapPN(unsigned long pageNumber);
 static int checkAllocatedVirtualBitmapVA(void* virtualPageAddress);
 static int checkAllocatedVirtualBitmapPN(unsigned long pageNumber);
 static void createTLB();
+unsigned long customCeil(double);
 
 pthread_mutex_t mallocLock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -86,7 +86,7 @@ void set_physical_mem() {
 	// therefore we can store 8 pages per character.
 	// # of Pages (Bytes) / Page Size (Bytes) = Number of Pages Required in Bytes 
 	// # of Pages in Bytes / 8 = Number of Pages Required in Bits
-	// SOLVED: pages sizes that are not multiple of 8 round to nearest byte via ceil
+	// SOLVED: pages sizes that are not multiple of 8 round to nearest byte via customCeil
 	
 	// If there is a fractional part and had to be rounded to allocate the
 	// last pages, then we must set the pages in the last char that should not exist
@@ -158,7 +158,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
 	if (pageTableLevels * pageTableBits > virtualPageBits) {
 		if (virtualPageBits <= pageTableBits || 
 				pageTableBits * (pageTableLevels - 1) >= virtualPageBits) {
-			pageTableBits = ceil(virtualPageBits / ((double)pageTableLevels));
+			pageTableBits = customCeil(virtualPageBits / ((double)pageTableLevels));
 		}
 	}
 	
@@ -234,7 +234,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 	if (pageTableLevels * pageTableBits > virtualPageBits) {
 		if (virtualPageBits <= pageTableBits || 
 				pageTableBits * (pageTableLevels - 1) >= virtualPageBits) {
-			pageTableBits = ceil(virtualPageBits / ((double)pageTableLevels));
+			pageTableBits = customCeil(virtualPageBits / ((double)pageTableLevels));
 		} 
 	} 
 	
@@ -512,7 +512,7 @@ void *a_malloc(unsigned int num_bytes) {
 		if (pageTableLevels * pageTableBits > virtualPageBits) {
 			if (virtualPageBits <= pageTableBits || 
 					pageTableBits * (pageTableLevels - 1) >= virtualPageBits) {
-				pageTableBits = ceil(virtualPageBits / ((double)pageTableLevels));
+				pageTableBits = customCeil(virtualPageBits / ((double)pageTableLevels));
 			}
 		}
 		 
@@ -524,8 +524,8 @@ void *a_malloc(unsigned int num_bytes) {
 		
 		// Number of entries in page directory = 2^(page directory bits)
 		// Number of bytes required for page directory = Number of entries in page directory * entry size
-		// Number of Physical Pages required for page directory = ceil(Number of bytes required for page directory / PGSIZE)
-		unsigned long numberOfContinousPhysicalPages = (unsigned long) ceil(((1 << virtualPageBits) * ENTRY_SIZE) / ((double)(PGSIZE)));
+		// Number of Physical Pages required for page directory = customCeil(Number of bytes required for page directory / PGSIZE)
+		unsigned long numberOfContinousPhysicalPages = (unsigned long) customCeil(((1 << virtualPageBits) * ENTRY_SIZE) / ((double)(PGSIZE)));
 		if (virtualPageBits == 0) {
 			numberOfContinousPhysicalPages = 0;
 		}
@@ -547,7 +547,7 @@ void *a_malloc(unsigned int num_bytes) {
 
 	}
 	
-	unsigned long numberOfPagesToAllocate = (unsigned long) ceil((double)num_bytes / PGSIZE);
+	unsigned long numberOfPagesToAllocate = (unsigned long) customCeil((double)num_bytes / PGSIZE);
 	printf("%u bytes require %lu pages\n", num_bytes, numberOfPagesToAllocate);
 	
 	// Find a spot in the virtual bitmap where we can allocate numberOfPagesToAllocate
@@ -643,7 +643,7 @@ void a_free(void *va, int size) {
      	return;
      }
      
-     unsigned long numberOfPagesToFree = (unsigned long) ceil((double)size / PGSIZE);
+     unsigned long numberOfPagesToFree = (unsigned long) customCeil((double)size / PGSIZE);
      pthread_mutex_lock(&mallocLock);
 
      // Safety check to see if the pages are actually allocated
@@ -707,7 +707,7 @@ void put_value(void *va, void *val, int size) {
     // page
     if (size > ((PGSIZE) - offset)) { 
     	unsigned long remainingSize = size - ((PGSIZE) - offset);
-    	numberOfPagesToAllocate = (unsigned long) ceil((double)remainingSize / (PGSIZE));
+    	numberOfPagesToAllocate = (unsigned long) customCeil((double)remainingSize / (PGSIZE));
     } 
 	unsigned long copied = 0;
 	unsigned long copy = size > ((PGSIZE) - offset) ? ((PGSIZE) - offset) : size;
@@ -783,7 +783,7 @@ void get_value(void *va, void *val, int size) {
     // page
     if (size > ((PGSIZE) - offset)) { 
     	unsigned long remainingSize = size - ((PGSIZE) - offset);
-    	numberOfPagesToAllocate = (unsigned long) ceil((double)remainingSize / (PGSIZE));
+    	numberOfPagesToAllocate = (unsigned long) customCeil((double)remainingSize / (PGSIZE));
     } 
 	unsigned long copied = 0;
 	unsigned long copy = size > ((PGSIZE) - offset) ? ((PGSIZE) - offset) : size;
@@ -1001,9 +1001,7 @@ static void createTLB() {
 }
 
 
-
-
-
-
-
-
+unsigned long customCeil(double num) {
+	unsigned long floor = (unsigned long) num;
+	return (num == floor) ? floor : floor + 1;
+}
