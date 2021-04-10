@@ -30,7 +30,7 @@ typedef unsigned long pde_t;
 void set_physical_mem();
 pte_t* translate(pde_t *pgdir, void *va);
 int page_map(pde_t *pgdir, void *va, void* pa);
-bool check_TLB(void *va);
+void *check_TLB(void *va);
 void add_TLB(void *va, void *pa);
 void *a_malloc(unsigned int num_bytes);
 void a_free(void *va, int size);
