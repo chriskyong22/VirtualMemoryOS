@@ -3,7 +3,6 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <math.h>
 #include <pthread.h>
 
 //Assume the address space is 32 bits, so the max memory size is 4GB
@@ -31,8 +30,8 @@ typedef unsigned long pde_t;
 void set_physical_mem();
 pte_t* translate(pde_t *pgdir, void *va);
 int page_map(pde_t *pgdir, void *va, void* pa);
-bool check_in_tlb(void *va);
-void put_in_tlb(void *va, void *pa);
+bool check_TLB(void *va);
+void add_TLB(void *va, void *pa);
 void *a_malloc(unsigned int num_bytes);
 void a_free(void *va, int size);
 void put_value(void *va, void *val, int size);
