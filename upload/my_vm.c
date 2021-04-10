@@ -145,7 +145,7 @@ pte_t *translate(pde_t *pgdir, void *va) {
     * Part 2 HINT: Check the TLB before performing the translation. If
     * translation exists, then you can return physical address from the TLB.
     */
-	
+	tlbMiss++;
 	unsigned int virtualPageBits = VIRTUAL_PAGE_NUMBER_BITS;
 	
 	// Page Table Entries = Page Table Size / Entry Size 
@@ -426,7 +426,6 @@ void add_TLB(void *va, void *pa) {
 	
 	currentTLBEntry->physicalPageAddress = pa;
 	currentTLBEntry->metadata |= TLB_VALID_BIT_MASK;
-	tlbMiss++;
 	//printf("Added TLB ENTRY: %llu bit set, virtualPageNumber %lu\n", (currentTLBEntry->metadata & TLB_VALID_BIT_MASK), currentTLBEntry->virtualPageNumber);
 }
 
@@ -674,7 +673,7 @@ void a_free(void *va, int size) {
      	void* physicalAddress = check_TLB(virtualPageAddress);
      	if (physicalAddress == NULL) {
      		physicalAddress = translate(pageDirectoryBase, virtualPageAddress);
-     		tlbMiss++;
+     		//tlbMiss++;
      	} else { 
      		remove_TLB(virtualPageAddress);
      	}
