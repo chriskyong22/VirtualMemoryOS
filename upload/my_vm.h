@@ -1,3 +1,6 @@
+// List all group member's name: Christopher Yong (cy287), Joshua Ross (jjr276)
+// iLab Server: less.cs.rutgers.edu
+
 #ifndef MY_VM_H_INCLUDED
 #define MY_VM_H_INCLUDED
 #include <stdbool.h>
