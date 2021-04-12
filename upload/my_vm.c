@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <limits.h>
+#include <math.h>
 #include <pthread.h>
 
 typedef struct allocationNode {
@@ -223,7 +224,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
     /*HINT: Similar to translate(), find the page directory (1st level)
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
-	printf("Mapping %lu VA to %lu PA\n", ((unsigned long)va), ((unsigned long)pa));
+	//printf("Mapping %lu VA to %lu PA\n", ((unsigned long)va), ((unsigned long)pa));
 	
 	unsigned int virtualPageBits = VIRTUAL_PAGE_NUMBER_BITS;
 	
@@ -271,7 +272,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 		// Assuming since nextAddress is unsigned long*, the sizeof unsigned long
 		// will be 4 bytes or 8 bytes depending on 32/64 bit, safer approach is
 		// ((char*)nextAddress + (ENTRY_SIZE * pageTableIndex))
-		printf("The index in the %u page table is %lu\n", pageTableLevels + 1, pageTableIndex);
+		//printf("The index in the %u page table is %lu\n", pageTableLevels + 1, pageTableIndex);
 		
 		void* holdNextAddress = (nextAddress + pageTableIndex);
 		nextAddress = (unsigned long*) *(nextAddress + pageTableIndex); 
@@ -284,12 +285,12 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 				// Currently assuming the passed-in PA was checked to be a free page
 				// already and we just overwrite the stored PA (if there is one already stored)
 				// in the last-level page table.
-				printf("Setting the address of the physical in the last-level page table entry %lu\n", (unsigned long)pa);
+				//printf("Setting the address of the physical in the last-level page table entry %lu\n", (unsigned long)pa);
 				*((unsigned long*)holdNextAddress) = (unsigned long)pa;
 				freeAllocationLinkedList(allocation);
 				return 1;
 			} else {
-				printf("Allocating a new %d-level page table\n", pageTableLevels + 1);
+				//printf("Allocating a new %d-level page table\n", pageTableLevels + 1);
 				void* physicalPageAddress = get_next_physicalavail();
 				if (physicalPageAddress == NULL) {
 					// Need to free page tables that were allocated for this mapping 
@@ -304,7 +305,7 @@ int page_map(pde_t *pgdir, void *va, void *pa) {
 				}
 				*((unsigned long*)holdNextAddress) = (unsigned long) physicalPageAddress;
 				nextAddress = physicalPageAddress;
-				printf("Storing a new page table address in current page table: %lu\n", (unsigned long) physicalPageAddress);
+				//printf("Storing a new page table address in current page table: %lu\n", (unsigned long) physicalPageAddress);
 				// Using lazy malloc therefore we only zero out the pages when it
 				// is allocated, aka there was old data and we just leave it till 
 				// the physical page is in use.
@@ -522,7 +523,7 @@ void *a_malloc(unsigned int num_bytes) {
 			virtualPageBits -= pageTableBits;
 			pageTableLevels--;
 		}
-		printf("The number of bits used for page directory is %u. The number of bits used for all the other pages is %u\n", virtualPageBits, pageTableBits);
+		//printf("The number of bits used for page directory is %u. The number of bits used for all the other pages is %u\n", virtualPageBits, pageTableBits);
 		
 		// Number of entries in page directory = 2^(page directory bits)
 		// Number of bytes required for page directory = Number of entries in page directory * entry size
@@ -532,7 +533,7 @@ void *a_malloc(unsigned int num_bytes) {
 			numberOfContinousPhysicalPages = 0;
 		}
 		
-		printf("The number of pages to allocate continously is %lu for page directory\n", numberOfContinousPhysicalPages);
+		//printf("The number of pages to allocate continously is %lu for page directory\n", numberOfContinousPhysicalPages);
 		while (numberOfContinousPhysicalPages != 0) { 
 			void* physicalAddress = get_next_physicalavail();
 			if (pageDirectoryBase == NULL) {
@@ -550,7 +551,7 @@ void *a_malloc(unsigned int num_bytes) {
 	}
 	
 	unsigned long numberOfPagesToAllocate = (unsigned long) customCeil((double)num_bytes / PGSIZE);
-	printf("%u bytes require %lu pages\n", num_bytes, numberOfPagesToAllocate);
+	//printf("%u bytes require %lu pages\n", num_bytes, numberOfPagesToAllocate);
 	
 	// Find a spot in the virtual bitmap where we can allocate numberOfPagesToAllocate
 	// continous pages. 
@@ -594,7 +595,7 @@ void *a_malloc(unsigned int num_bytes) {
 	}
 	
 	unsigned long virtualPageNumber = getVirtualPageNumber(startingVirtualPageAddress);
-	printf("Starting Virtual Page Number %ld\n", virtualPageNumber);
+	//printf("Starting Virtual Page Number %ld\n", virtualPageNumber);
 	// At this point, we found enough physical and virtual pages to allocate 
 	// We must now map each virtual page to the physical page now and zero out 
 	// the physical pages and mark the virtual pages as allocated.
@@ -737,7 +738,7 @@ void put_value(void *va, void *val, int size) {
    		//printf("Physical Page %lu, starting physical address %lu, base address %lu\n", physicalPage, (unsigned long) startPhysicalAddress, (unsigned long) physicalMemoryBase);
    		//unsigned long physicalPage = getPhysicalPageNumber(physicalAddress);
    		//void* startPhysicalAddress = getPhysicalPageAddress(physicalPage);
-   		printf("Virtual address %lu, Physical Address %lu\n", (unsigned long) va, (unsigned long)physicalAddress);
+   		//printf("Virtual address %lu, Physical Address %lu\n", (unsigned long) va, (unsigned long)physicalAddress);
    		//printf("Physical Offset %lu, Virtual Offset %llu\n", offset, ((unsigned long)physicalAddress) & OFFSET_MASK);
    	}
    	   	
@@ -814,7 +815,7 @@ void get_value(void *va, void *val, int size) {
    		//printf("Physical Page %lu, starting physical address %lu, base address %lu\n", physicalPage, (unsigned long) startPhysicalAddress, (unsigned long) physicalMemoryBase);
    		//unsigned long physicalPage = getPhysicalPageNumber(physicalAddress);
    		//void* startPhysicalAddress = getPhysicalPageAddress(physicalPage);
-   		printf("Virtual address %lu, Physical Address %lu\n", (unsigned long) va, (unsigned long)physicalAddress);
+   		//printf("Virtual address %lu, Physical Address %lu\n", (unsigned long) va, (unsigned long)physicalAddress);
    		//printf("Physical Offset %lu, Virtual Offset %llu\n", offset, ((unsigned long)physicalAddress) & OFFSET_MASK);
    	}
    	
